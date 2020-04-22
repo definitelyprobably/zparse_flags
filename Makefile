@@ -4,7 +4,7 @@ ZPARSE_FLAGS = zparse_flags
 LOADER_SCRIPT = $(ZPARSE_FLAGS)
 TEMPLATE = $(ZPARSE_FLAGS).skeleton
 SCRIPT = $(ZPARSE_FLAGS).zsh
-VERSION = "$(shell grep 'zparse_flags_version=' $(SCRIPT) | sed 's/zparse_flags_version=//')"
+VERSION != grep 'zparse_flags_version=' $(SCRIPT) | sed 's/zparse_flags_version=//'
 SCRIPT_VERSIONED = $(ZPARSE_FLAGS).$(VERSION)
 
 TAR = tar
@@ -16,13 +16,8 @@ MKDIR = mkdir -p --
 LN_S = ln -s --
 CP = cp -f --
 
-ifdef installdir
-SYS_TARGET_DIR = $(installdir)
-LOCAL_TARGET_DIR = $(installdir)
-else
-SYS_TARGET_DIR = /usr/local/share/$(ZPARSE_FLAGS)
-LOCAL_TARGET_DIR = ~/.zsh/plugins/$(ZPARSE_FLAGS)
-endif
+SYSDIR ?= /usr/local/share/$(ZPARSE_FLAGS)
+LOCALDIR ?= ~/.zsh/plugins/$(ZPARSE_FLAGS)
 
 .PHONY: all help
 all: help
@@ -39,26 +34,26 @@ help:
 
 .PHONY: install install-system install-local
 install:
-	@echo "to install system-wide (in $(SYS_TARGET_DIR)), run:"
+	@echo "to install system-wide (in $(SYSDIR)), run:"
 	@echo "     $$ make install-system"
-	@echo "to install locally (in $(LOCAL_TARGET_DIR)), run:"
+	@echo "to install locally (in $(LOCALDIR)), run:"
 	@echo "     $$ make install-local"
 	@echo "the paths can be modified as follows:"
-	@echo "     $$ make install-system installdir=/path"
-	@echo "     $$ make install-local installdir=/path"
+	@echo "     $$ make install-system SYSDIR=/path"
+	@echo "     $$ make install-local LOCALDIR=/path"
 
 
 install-system:
-	$(MKDIR) $(SYS_TARGET_DIR)
-	$(CP) $(LOADER_SCRIPT) $(SYS_TARGET_DIR)
-	$(CP) $(TEMPLATE) $(SYS_TARGET_DIR)
-	$(CP) $(SCRIPT) $(SYS_TARGET_DIR)/$(SCRIPT_VERSIONED)
+	$(MKDIR) $(SYSDIR)
+	$(CP) $(LOADER_SCRIPT) $(SYSDIR)
+	$(CP) $(TEMPLATE) $(SYSDIR)
+	$(CP) $(SCRIPT) $(SYSDIR)/$(SCRIPT_VERSIONED)
 
 install-local:
-	$(MKDIR) $(LOCAL_TARGET_DIR)
-	$(CP) $(LOADER_SCRIPT) $(LOCAL_TARGET_DIR)
-	$(CP) $(TEMPLATE) $(LOCAL_TARGET_DIR)
-	$(CP) $(SCRIPT) $(LOCAL_TARGET_DIR)/$(SCRIPT_VERSIONED)
+	$(MKDIR) $(LOCALDIR)
+	$(CP) $(LOADER_SCRIPT) $(LOCALDIR)
+	$(CP) $(TEMPLATE) $(LOCALDIR)
+	$(CP) $(SCRIPT) $(LOCALDIR)/$(SCRIPT_VERSIONED)
 
 
 .PHONY: tarball
