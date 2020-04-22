@@ -1,0 +1,3680 @@
+#!/bin/zsh
+#
+# version 1
+#
+# check the output of the zparse_flags functions loaded by the zparse_flags
+# loader script (which sources the zparse_flags.zsh file be default).
+#
+# Without any additional arguments, the script will run checks on the
+# output of zparse_flags, otherwise it will display the particular output
+# of zparse_flags when passed those arguments. In order to run a list of
+# specific checks (rather than all of them), then pass them as comma-
+# separated check numbers as:
+#    ./check CHECKS=1,3,17,5...
+#    ./check checks=1,3,17,5...
+#
+# To print a help message, run:
+#    ./check help
+#
+# Note that when running the checks (when no arguments besides possibly
+# a LOAD request are passed) that an intermediary file called ckrun.out
+# is created and deleted. If the file exists already when the script is
+# run in this mode, then it will be clobbered!
+
+progname="check"
+
+setopt localoptions
+setopt extendedglob
+
+if [[ $1 == "help" || $1 == "HELP" ]]; then
+	echo "testing script for loading zparse_flags and checking its operation and outputs.
+
+usage:  $progname help
+        $progname [system] checks=...
+        $progname [system] INPUTS...
+
+Certain inputs may be special in that they alter the script behaviour. They
+are listed above in small case, but they may also be given in upper case
+(so, for example, 'check=...' and 'CHECK=...' are identical special inputs).
+
+With no ordinary inputs given ('INPUTS...'), then run a series of automatic
+checks on how zparse_flags should behave on certain given standard inputs.
+This mode of operation tests whether zparse_flags succeeds or fails, sets
+the correct outputs when it succeeds, and checks that no unecessary
+variables leak from its various function calls.
+
+special inputs:
+   help          - if given first, then print this message and exit.
+   checks=LIST   - if given, and NO OTHER ORDINARY INPUTS are given, then
+                   instead of running all automatic checks, instead run the
+                   check numbers given in 'LIST', which must be a comma-
+                   separated list of numbers (anything else is just ignored).
+                   As with the other special inputs, this MUST be the first
+                   input given, unless it is with the 'load' special input,
+                   in which case it MUST directly follow the 'load' special
+                   input.
+   system        - source the system script (in '/usr/share/zparse_flags')
+                   instead of the file in the directory this file is in.
+
+ordinary inputs:
+   INPUTS...     - these inputs are fed into zparse_flags and the script will
+                   then display how zparse_flags has handled these inputs.
+
+Copyright (c) 2020, Karta Kooner, GNU GPL v3+."
+	exit 0
+fi
+args=($@)
+
+target_zparse_flags="$(dirname $0)/zparse_flags.zsh"
+if [[ $args[1] =~ "^(system|SYSTEM)$" ]]; then
+	load_system=1
+	target_zparse_flags="/usr/local/share/zparse_flags/zparse_flags"
+	shift args
+fi
+
+if [[ $args[1] =~ "^checks=.*" ]]; then
+	check_list=(${(@s:,:)${args[1]/checks=/}})
+	shift args
+elif [[ $args[1] =~ "^CHECKS=.*" ]]; then
+	check_list=(${(@s:,:)${args[1]/CHECKS=/}})
+	shift args
+fi
+
+export zparse_flags_strict_flag_declarations=1
+
+if [[ -r $target_zparse_flags ]]; then
+	if ! . $target_zparse_flags; then
+		echo "$progname: zparse_flags not sourced." >&2
+		exit 2
+	fi
+else
+	echo "$progname: zparse_flags not found" >&2
+	exit 3
+fi
+
+typeset -A setcolour
+setcolour[red]=$(tput setaf 1 2>/dev/null || tput AF 1 2>/dev/null)
+setcolour[green]=$(tput setaf 2 2>/dev/null || tput AF 2 2>/dev/null)
+setcolour[gold]=$(tput setaf 3 2>/dev/null || tput AF 3 2>/dev/null)
+setcolour[teal]=$(tput setaf 6 2>/dev/null || tput AF 6 2>/dev/null)
+setcolour[lred]=${setcolour[red]}$(tput setaf 9 2>/dev/null || tput AF 9 2>/dev/null)
+setcolour[lgreen]=${setcolour[green]}$(tput setaf 10 2>/dev/null || tput AF 10 2>/dev/null)
+setcolour[yellow]=${setcolour[gold]}$(tput setaf 11 2>/dev/null || tput AF 11 2>/dev/null)
+setcolour[lblue]=${setcolour[teal]}$(tput setaf 12 2>/dev/null || tput AF 12 2>/dev/null)
+setcolour[turquoise]=${setcolour[teal]}$(tput setaf 14 2>/dev/null || tput AF 14 2>/dev/null)
+setcolour[bwhite]=$(tput setab 7 2>/dev/null || tput AB 7 2>/dev/null)$(tput setab 15 2>/dev/null || tput AB 15 2>/dev/null)
+setcolour[dim]=$(tput dim 2>/dev/null || tput mh 2>/dev/null)
+setcolour[italic]=$(tput sitm 2>/dev/null || tput ZH 2>/dev/null)
+setcolour[bold]=$(tput bold 2>/dev/null || tput md 2>/dev/null)
+setcolour[underline]=$(tput smul 2>/dev/null || tput us 2>/dev/null)
+setcolour[off]=$(tput sgr0 2>/dev/null || tput me 2>/dev/null)
+
+echo "$progname: using zparse_flags version ${setcolour[green]}${zparse_flags_version}${load_system:+" ${setcolour[italic]}(system)"}${setcolour[off]}"
+echo -n "$progname: command line:"
+if [[ -z $args ]]; then
+	echo " <empty>  ${setcolour[green]}will run script checks...${setcolour[off]}"
+	if [[ -n $check_list ]]; then
+		echo "$progname: check list given: checks: ${setcolour[green]}${(j:, :)check_list}${setcolour[off]}"
+	fi
+else
+	for ((i=1; i<=$#args; i++)); do
+		echo -n - " $i:[${setcolour[lblue]}$args[i]${setcolour[off]}]"
+	done
+	echo
+fi
+
+
+f1=(B -h --help l:long)
+f2=(B -t s:t s:short)
+f3=(B l:-x l:x)
+f4=(O -o --opt)
+f5=(O -p --pan cb:bare cb3:"/bare[1-9]/")
+f6=(O s:A l:apt cm:"/lib[a-z0-9]*/=/yes[0-9]*/,no")
+f7=(M -m --man)
+f8=(M -f --file cb:opt0 co:opt=a,b,c co:opt1 co:opt2=x,y,z,"/[a-z][0-9]/")
+f9=(M s:D l:dev cm4:dat cm:ory="/file[A-Z]/,/[fF][0-9]*/")
+f10=(B "/--[bB][lL][oO][cC][kK]/" "/-[kK]/")
+f11=(O l:"/[-+]attrib/" s:"/[-+][zZ]/")
+f12=(M l:"/[jJ]ail/" s:"/[gG]/")
+f13=(M s:+a cm4:ptitude=trace,det,"/log[A-Z]*/")
+f14=(B2 -y)
+f15=(B0 --exc)
+f16=(O2 --2)
+f17=(O2 --1 cb:bare1 cb2:bare2-2 co:opt1 co:opt2=a,b,c co1:opt3-1 \
+			co3:opt2-3=A,B,C cm:mand1 cm1:mand2-1 cm:mand3=x,y,z \
+			cm4:mand4-4=X,Y,Z)
+f18=(M3 --m1 cb2:"/-{1,2}flag/" co3:"/-{0,2}[oO]pt/"="/[a-z][01]/",A0,Z1 \
+	 cm1:"/[-+]attrib/"=file0,file1,"/(un){0,1}set-file[0-9]/")
+f19=(O s:'/-{0,2}//' l:'/--{0,1}claw/' cb:, cb:: cm:x f:comsep=_ f:cominp='>' f:flaginp=~)
+fS=(S -- --stop s:"/[sS]top/")
+fI=I
+fA=A
+fA4=A4
+fU=U
+
+
+print_all_inputs () {
+	if ! zparse_flags_has_flag_in_recognized_list $1; then
+		echo OK
+		return 0
+	fi
+	typeset -a all_inputs
+	zparse_flags_get_all_inputs $1 all_inputs
+	local exit_status=$?
+	((exit_status == 1)) && return 0
+
+	integer kl
+	for ((kl=1; kl<=19; kl++)); do echo -n " "; done
+	if ((exit_status == 2)); then
+		echo "[${setcolour[lred]}FAILURE${setcolour[off]}]"
+		return 1
+	fi
+	echo -n "["
+	local inp
+	for inp in $all_inputs; do
+		echo -n - "$inp, "
+	done
+	echo "\b\b] -> $#all_inputs"
+}
+
+print_raw_inputs () {
+	local -a pflag
+	local ilen
+	local colour
+	local colourx="${setcolour[off]}"
+	local regex_flag
+
+	if zparse_flags_has_flag $1; then
+		: colour="${setcolour[yellow]}"
+		colour=$colourx
+	else
+		colour=$colourx
+	fi
+
+	eval pflag=\(\$$1\)
+	if [[ ${pflag[1]} =~ "^[BOM][0-9]*" ]]; then
+		local flag_raw=${pflag[2]//[sl][:]/}
+		if [[ $flag_raw[1] == "/" ]]; then
+			local name="flag $pflag[1] R$((++pri_regex_count)):"
+			regex_flag="   (regex name): $flag_raw"
+		else
+			local name="flag $pflag[1] $flag_raw:"
+		fi
+	elif [[ $pflag[1] == S ]]; then
+		local name="input S:"
+	else
+		local name="input $pflag:"
+	fi
+	integer len=$((17 - $#name))
+	for ilen in {1..$len}; do
+		name="$name "
+	done
+	name=$colour$name$colourx
+
+	if ! zparse_flags_has_flag_in_recognized_list $1; then
+		echo "$name ---"
+	else
+		eval echo \"\$name \$\{\#$(zparse_flags_usage_name $1)\}\[\$$(zparse_flags_usage_name $1)]\$regex_flag\"
+		print_all_inputs $1
+	fi
+}
+
+# FIXME: flag_inputs no longer ordered, so need to associate the input with
+#        the flag instance.
+display () {
+	local -a pflag
+	local ilen
+	local colour
+	local colourx="${setcolour[off]}"
+
+	if zparse_flags_has_flag $1; then
+		: colour="${setcolour[yellow]}"
+		colour=$colourx
+	else
+		colour=$colourx
+	fi
+
+	eval pflag=\(\$$1\)
+	if [[ ${pflag[1]} =~ "^[BOM][0-9]*" ]]; then
+		local flag_raw=${pflag[2]//[sl][:]/}
+		if [[ $flag_raw[1] == "/" ]]; then
+			local name="flag $pflag[1] R$((++d_regex_count)):"
+		else
+			local name="flag $pflag[1] $flag_raw:"
+		fi
+	elif [[ $pflag[1] == S ]]; then
+		local name="input S:"
+	else
+		local name="input $pflag:"
+	fi
+	integer len=$((18 - $#name))
+	for ilen in {1..$len}; do
+		name="$name "
+	done
+	name=$colour$name$colourx
+
+	echo -n - $name
+	local inst=-
+	[[ -n $2 ]] && inst=$2
+	if ! zparse_flags_has_flag_in_recognized_list $1; then
+		echo "not used"
+	elif zparse_flags_has_flag $1; then
+		echo -n "(${setcolour[off]}${setcolour[italic]}pos: $(zparse_flags_get_number $1 $inst)"
+		local index
+		if index=$(zparse_flags_get_chain_number $1 $inst); then
+			echo -n " [index: $index]"
+		fi
+		echo -n "${setcolour[off]}, ${setcolour[italic]}flag: "
+		local flag
+		if flag=$(zparse_flags_get_flag $1 $inst); then
+			echo -n - "$flag${setcolour[off]}"
+		else
+			echo -n "<none>${setcolour[off]}"
+		fi
+		local input
+		if input=$(zparse_flags_get_input $1 $inst); then
+			echo -n ", input: ${setcolour[off]}${setcolour[underline]}${setcolour[bold]}${input}${setcolour[off]}"
+			zparse_flags_is_input_internal $1 $inst
+			integer retval=$?
+			if ((retval == 0)); then
+				echo -n " [${setcolour[off]}${setcolour[italic]}int${setcolour[off]}]"
+			elif ((retval == 1)); then
+				echo -n " [${setcolour[off]}${setcolour[italic]}ext${setcolour[off]}]"
+			else
+				echo -n " [${setcolour[lred]}${setcolour[italic]}err:$retval${setcolour[off]}]"
+			fi
+		fi
+		if [[ ${pflag[1][1]} == I || ${pflag[1][1]} == A || \
+			  ${pflag[1][1]} == U ]]; then
+
+			# NOTE: please input the registered stop flag here and onwards:
+			if [[ ${fS[1][1]} == S ]]; then
+
+				local -a stop_flag
+				eval stop_flag=\(\$$(zparse_flags_usage_name fS)\)
+
+				if zparse_flags_has_flag stop_flag; then
+					echo -n " {"
+					if zparse_flags_is_input_after stop_flag - $1 $inst
+					then
+						echo -n "after stop"
+						if zparse_flags_is_IAU_S $1 $inst; then
+							if (($? == 2)); then
+								echo -n " ${setcolour[lred]}err${setcolour[off]}"
+							else
+								echo -n " because of"
+							fi
+						fi
+					else
+						if (($? == 2)); then
+							echo -n "${setcolour[lred]}err${setcolour[off]}"
+						else
+							echo -n "before stop"
+						fi
+					fi
+					echo -n "}"
+				fi
+			fi
+		fi
+		echo ")"
+	else
+		echo "not given"
+	fi
+}
+
+run_check () {
+	integer failo
+	integer failx
+	local failv
+	typeset -a failf
+	local output
+	integer ex
+	local i
+	integer check_list_run
+	local var_list1
+	local var_list2
+
+	((++count))
+	# skip this run_check count-number if check_list has been set and this
+	# count-number is not in the list.
+	if [[ -n $check_list ]]; then
+		for i in $check_list; do
+			if ((count == i)); then
+				check_list_run=1
+				break
+			fi
+		done
+		if ((!check_list_run)); then
+			return
+		fi
+	fi
+	((++run_count)) # this is positioned correctly!
+
+	integer pass
+	typeset -a args
+	pargs=($@)
+	if [[ $pargs[1] == PASS ]]; then
+		pass=1
+		shift pargs
+	fi
+
+	echo -n "$progname: check $count "
+	for i in {1..$((4 - $#count))}; do echo -n " "; done
+
+	var_list1=$(typeset +)
+	#output="$(zparse_flags $@ 3>&2 2>&1 1>&3 3>&-)"
+	zparse_flags $pargs 2>./ckrun.out >&2
+	ex=$?
+	var_list2=$(typeset +)
+
+	if ! output="$(cat ./ckrun.out)"; then
+		((++fail_count))
+		echo "${setcolour[bwhite]}${setcolour[dim]}${setcolour[lred]}${setcolour[italic]}INTERNAL FAIL${setcolour[off]}"
+		return
+	fi
+	if ! rm -f ./ckrun.out >/dev/null 2>&1; then
+		((++fail_count))
+		echo "${setcolour[bwhite]}${setcolour[dim]}${setcolour[lred]}${setcolour[italic]}INTERNAL FAIL${setcolour[off]}"
+		return
+	fi
+
+	local -a list
+	typeset -a oexp
+	typeset -a oexpu oactu
+	typeset -A oexpi oacti
+	integer sw
+	integer maxcount
+	eval list=\(\$$zparse_flags_list_recognized_flags_name\)
+	if ((pass)); then
+		for i in $list; do
+			#echo "----- $i --------------------"
+			eval oactu=\(\$$(zparse_flags_usage_name $i)\)
+			#echo "UNAME $i: $(zparse_flags_usage_name $i)"
+			#echo "ACTU $i: [${oactu}]"
+			eval oacti=\(\$\{\(kv\)$(zparse_flags_inputs_name $i)\}\)
+			#echo "INAME $i: $(zparse_flags_inputs_name $i)"
+			#echo "ACTI $i: [${(kv)oacti}]"
+			eval oexp=\(\"\$\{\(@\)${i}x\}\"\)
+			#echo "EXP  $i: ($#oexp)[$oexp]"
+			oexpu=()
+			oexpi=()
+			for ((j=1; j<$#oexp; j+=2)); do
+				#echo " * $j: $oexp[$j]"
+				oexpu+=($oexp[$j])
+				oexpi[$oexp[$j]]="$oexp[$((j+1))]"
+			done
+			#echo "EXPU $i: [${oexpu}]"
+			#echo "EXPI $i: [${(kv)oexpi}]"
+
+			sw=0
+			(( $#oactu > $#oexpu )) && maxcount=$#oactu || maxcount=$#oexpu
+			for ((j=1; j<=$maxcount; j++)); do
+				[[ ${oactu[$j]} != ${oexpu[$j]} ]] && sw=1
+				[[ ${oacti[${oactu[$j]}]} != ${oexpi[${oexpu[$j]}]} ]] && sw=1
+			done
+			((sw)) && failf+=$i
+		done
+	fi
+
+	[[ $exp != $output ]] && failo=1
+	((ex != expx)) && failx=1
+
+	failv="$(diff <(<<<$var_list1) <(<<<$var_list2) 2>&1 | \
+			 sed -e '/^[^<>].*/d' \
+			 	 -e '/MATCH/d' \
+				 -e '/MBEGIN/d' \
+				 -e '/MEND/d' \
+			 	 -e '/match/d' \
+				 -e '/mbegin/d' \
+				 -e '/mend/d' \
+				 -e 's/>/        after:  /' \
+				 -e 's/</        before: /')"
+	for i in $list; do
+		failv=$(sed '/array[ \t]*'"$(zparse_flags_usage_name $i)"'/d' <<<$failv)
+		failv=$(sed '/association[ \t]*'"$(zparse_flags_inputs_name $i)"'/d' <<<$failv)
+		failv=$(sed '/association[ \t]*zparse_flags_usage_name_map/d' <<<$failv)
+		failv=$(sed '/association[ \t]*zparse_flags_inputs_name_map/d' <<<$failv)
+	done
+	if [[ -n $zparse_flags_list_recognized_flags ]]; then
+		failv=$(sed '/array[ \t]*'"${zparse_flags_list_recognized_flags_name:-used_flags}"'/d' <<<$failv)
+	fi
+
+	if ((failo || failx )) || [[ -n $failv ]] || [[ -n $failf ]]; then
+		((++fail_count))
+		fail_list+=($count)
+		echo "${setcolour[lred]}FAIL${setcolour[off]}"
+	else
+		echo "${setcolour[lgreen]}OK${setcolour[off]}"
+	fi
+	if (( failo )); then
+		echo "      expected output: [${setcolour[lblue]}$exp${setcolour[off]}]"
+		echo "      actual output:   [${setcolour[lred]}$output${setcolour[off]}]"
+	fi
+	if (( failx )); then
+		echo "      expected exit code: ${setcolour[turquoise]}$expx${setcolour[off]}"
+		echo "      actual exit code:   ${setcolour[yellow]}$ex${setcolour[off]}"
+	fi
+	if [[ -n $failv ]]; then
+		echo "      variables defined before/after mismatch:"
+		echo $failv
+	fi
+	local scas
+	if ((pass)); then
+		for i in $failf; do
+			eval echo \""        $i expected: [\${setcolour[turquoise]}\${(kv)${i}x}\${setcolour[off]}]"\"
+			eval echo \""        $i actual:   [\${setcolour[yellow]}"\$\{\(kv\)$(zparse_flags_inputs_name ${i})\}"\${setcolour[off]}]"\"
+		done
+	fi
+}
+
+
+run_aux_checks () {
+
+	integer check_list_run
+	((++count))
+	# skip this run_check count-number if check_list has been set and this
+	# count-number is not in the list.
+	if [[ -n $check_list ]]; then
+		for i in $check_list; do
+			if ((count == i)); then
+				check_list_run=1
+				break
+			fi
+		done
+		if ((!check_list_run)); then
+			return
+		fi
+	fi
+	((++run_count)) # this is positioned correctly!
+
+	echo -n "$progname: check $count "
+	for i in {1..$((4 - $#count))}; do echo -n " "; done
+
+
+	#zparse_flags_internal_error_quiet=1
+	zparse_flags_usage_rename="%n_%%_info"
+	zparse_flags_inputs_rename="%n_%%_inputs"
+
+	zparse_flags_list_recognized_flags=1
+	zparse_flags_list_recognized_flags_name=flags_names_list
+
+	flag_aux_B1=(B -h --help)
+	flag_aux_B2=(B -H)
+	flag_aux_O1=(O -o --opt)
+	flag_aux_O2=(O -O)
+	flag_aux_M1=(M -m --man)
+	flag_aux_M2=(M -M)
+	flag_aux_I=I
+	flag_aux_S=(S --)
+
+	if ! zparse_flags flag_aux_B1 flag_aux_B2 \
+					  flag_aux_O1 flag_aux_O2 \
+					  flag_aux_M1 flag_aux_M2 \
+					  flag_aux_I  flag_aux_S  \
+					  --- \
+					  -ho -hho" A A " -o -m" M M " -m" N N " -o" B B " \
+					  --opt=" C C " -h -o" D D " --man=" O O " --man " P P " \
+					  --help -m " Q Q " \
+					  " A A " -- -m " Q Q " -q --q -- " P P "
+	then
+		((++fail_count))
+		fail_list+=($count)
+		echo "${setcolour[lred]}FAIL${setcolour[off]}  zparse_flags"
+		return
+	fi
+
+
+	typeset -a failed_funcs
+	integer failed_set
+	local out_val
+	integer ret_val
+
+	#~~~~ zparse_flags_has_flag ~~~~#
+	if ! zparse_flags_has_flag flag_aux_B1; then
+		failed_funcs+=(zparse_flags_has_flag:B1)
+	fi
+	if zparse_flags_has_flag flag_aux_B2; then
+		failed_funcs+=(zparse_flags_has_flag:B2)
+	fi
+	if ! zparse_flags_has_flag flag_aux_O1; then
+		failed_funcs+=(zparse_flags_has_flag:O1)
+	fi
+	if zparse_flags_has_flag flag_aux_O2; then
+		failed_funcs+=(zparse_flags_has_flag:O2)
+	fi
+	if ! zparse_flags_has_flag flag_aux_M1; then
+		failed_funcs+=(zparse_flags_has_flag:M1)
+	fi
+	if zparse_flags_has_flag flag_aux_M2; then
+		failed_funcs+=(zparse_flags_has_flag:M2)
+	fi
+
+	#~~~~ zparse_flags_usage_name ~~~~#
+	if ! out_val=$(zparse_flags_usage_name flag_aux_B1); then
+		failed_funcs+=(zparse_flags_usage_name:fail_B1)
+	else
+		[[ $out_val != "flag_aux_B1__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_B1)
+	fi
+	if ! out_val=$(zparse_flags_usage_name flag_aux_B2); then
+		failed_funcs+=(zparse_flags_usage_name:fail_B2)
+	else
+		[[ $out_val != "flag_aux_B2__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_B2)
+	fi
+	if ! out_val=$(zparse_flags_usage_name flag_aux_O1); then
+		failed_funcs+=(zparse_flags_usage_name:fail_O1)
+	else
+		[[ $out_val != "flag_aux_O1__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_O1)
+	fi
+	if ! out_val=$(zparse_flags_usage_name flag_aux_O2); then
+		failed_funcs+=(zparse_flags_usage_name:fail_O2)
+	else
+		[[ $out_val != "flag_aux_O2__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_O2)
+	fi
+	if ! out_val=$(zparse_flags_usage_name flag_aux_M1); then
+		failed_funcs+=(zparse_flags_usage_name:fail_M1)
+	else
+		[[ $out_val != "flag_aux_M1__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_M1)
+	fi
+	if ! out_val=$(zparse_flags_usage_name flag_aux_M2); then
+		failed_funcs+=(zparse_flags_usage_name:fail_M2)
+	else
+		[[ $out_val != "flag_aux_M2__info" ]] && \
+			failed_funcs+=(zparse_flags_usage_name:mismatch_M2)
+	fi
+
+	#~~~~ zparse_flags_inputs_name ~~~~#
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_B1); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_B1)
+	else
+		[[ $out_val != "flag_aux_B1__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_B1)
+	fi
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_B2); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_B2)
+	else
+		[[ $out_val != "flag_aux_B2__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_B2)
+	fi
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_O1); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_O1)
+	else
+		[[ $out_val != "flag_aux_O1__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_O1)
+	fi
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_O2); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_O2)
+	else
+		[[ $out_val != "flag_aux_O2__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_O2)
+	fi
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_M1); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_M1)
+	else
+		[[ $out_val != "flag_aux_M1__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_M1)
+	fi
+	if ! out_val=$(zparse_flags_inputs_name flag_aux_M2); then
+		failed_funcs+=(zparse_flags_inputs_name:fail_M2)
+	else
+		[[ $out_val != "flag_aux_M2__inputs" ]] && \
+			failed_funcs+=(zparse_flags_inputs_name:mismatch_M2)
+	fi
+
+	#~~~~ zparse_flags_get_instances ~~~~#
+	if ! out_val=$(zparse_flags_get_instances flag_aux_B1); then
+		failed_funcs+=(zparse_flags_get_instances:no_B1)
+	else
+		[[ $out_val != 5 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_B1)
+	fi
+	if ! out_val=$(zparse_flags_get_instances flag_aux_B2); then
+		failed_funcs+=(zparse_flags_get_instances:no_B2)
+	else
+		[[ $out_val != 0 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_B2)
+	fi
+	if ! out_val=$(zparse_flags_get_instances flag_aux_O1); then
+		failed_funcs+=(zparse_flags_get_instances:no_O1)
+	else
+		[[ $out_val != 6 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_O1)
+	fi
+	if ! out_val=$(zparse_flags_get_instances flag_aux_O2); then
+		failed_funcs+=(zparse_flags_get_instances:no_O2)
+	else
+		[[ $out_val != 0 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_O2)
+	fi
+	if ! out_val=$(zparse_flags_get_instances flag_aux_M1); then
+		failed_funcs+=(zparse_flags_get_instances:no_M1)
+	else
+		[[ $out_val != 5 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_M1)
+	fi
+	if ! out_val=$(zparse_flags_get_instances flag_aux_M2); then
+		failed_funcs+=(zparse_flags_get_instances:no_M2)
+	else
+		[[ $out_val != 0 ]] && \
+			failed_funcs+=(zparse_flags_get_instances:mismatch_M2)
+	fi
+
+	#~~~~ zparse_flags_get_input ~~~~#
+	out_val=$(zparse_flags_get_input flag_aux_B1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_B1)
+
+	out_val=$(zparse_flags_get_input flag_aux_B1 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_1_B1)
+
+	out_val=$(zparse_flags_get_input flag_aux_B1 2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_2_B1)
+
+	out_val=$(zparse_flags_get_input flag_aux_B1 3)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_3_B1)
+
+	out_val=$(zparse_flags_get_input flag_aux_B1 4)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_4_B1)
+
+	out_val=$(zparse_flags_get_input flag_aux_B1 5)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_5_B1)
+
+
+	out_val=$(zparse_flags_get_input flag_aux_B2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_B2)
+
+	out_val=$(zparse_flags_get_input flag_aux_B2 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_1_B2)
+
+
+	out_val=$(zparse_flags_get_input flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_O1)
+	else
+		[[ $out_val != " D D " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_O1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_1_O1)
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_2_O1)
+	else
+		[[ $out_val != " A A " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_2_O1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 3)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_3_O1)
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_4_O1)
+	else
+		[[ $out_val != " B B " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_4_O1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_5_O1)
+	else
+		[[ $out_val != " C C " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_5_O1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_6_O1)
+	else
+		[[ $out_val != " D D " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_6_O1)
+	fi
+
+
+	out_val=$(zparse_flags_get_input flag_aux_O2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_O2)
+
+	out_val=$(zparse_flags_get_input flag_aux_O2 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_1_O2)
+
+
+	out_val=$(zparse_flags_get_input flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_M1)
+	else
+		[[ $out_val != " Q Q " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_M1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_1_M1)
+	else
+		[[ $out_val != " M M " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_1_M1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_2_M1)
+	else
+		[[ $out_val != " N N " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_2_M1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_3_M1)
+	else
+		[[ $out_val != " O O " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_3_M1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_4_M1)
+	else
+		[[ $out_val != " P P " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_4_M1)
+	fi
+
+	out_val=$(zparse_flags_get_input flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_input:input_5_M1)
+	else
+		[[ $out_val != " Q Q " ]] && \
+			failed_funcs+=(zparse_flags_get_input:input_mismatch_5_M1)
+	fi
+
+
+	out_val=$(zparse_flags_get_input flag_aux_M2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_M2)
+
+	out_val=$(zparse_flags_get_input flag_aux_M2 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_input:input_1_M2)
+
+
+	#~~~~ zparse_flags_is_input_internal ~~~~#
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_B1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1 1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_1_B1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1 2)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_2_B1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1 3)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_3_B1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1 4)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_4_B1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B1 5)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_5_B1)
+
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B2)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_B2)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_B2 1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_internal:input_1_B2)
+
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_1_O1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_2_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 3)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_3_O1)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_4_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_5_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_6_O1)
+	fi
+
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O2)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_O2)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_O2 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_1_O2)
+
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_1_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_2_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_3_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_4_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_internal:input_5_M1)
+	fi
+
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M2)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_M2)
+
+	out_val=$(zparse_flags_is_input_internal flag_aux_M2 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_internal:input_1_M2)
+
+
+	#~~~~ zparse_flags_is_input_external ~~~~#
+	out_val=$(zparse_flags_is_input_external flag_aux_B1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_B1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B1 1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_1_B1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B1 2)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_2_B1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B1 3)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_3_B1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B1 4)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_4_B1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B1 5)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_5_B1)
+
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B2)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_B2)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_B2 1)
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_input_external:input_1_B2)
+
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_1_O1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_2_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 3)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_3_O1)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_4_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_5_O1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_6_O1)
+	fi
+
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O2)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_O2)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_O2 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_1_O2)
+
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_1_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_2_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 1)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_3_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_4_M1)
+	fi
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_is_input_external:input_5_M1)
+	fi
+
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M2)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_M2)
+
+	out_val=$(zparse_flags_is_input_external flag_aux_M2 1)
+	ret_val=$?
+	((ret_val != 2)) && failed_funcs+=(zparse_flags_is_input_external:input_1_M2)
+
+
+	#~~~~ zparse_flags_get_all_inputs ~~~~#
+	typeset -a all_inputs
+	typeset -a comp_inputs
+	zparse_flags_get_all_inputs flag_aux_B1 all_inputs
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_B1)
+
+	zparse_flags_get_all_inputs flag_aux_B1 all_inputs 2 -
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_1_B1)
+
+	zparse_flags_get_all_inputs flag_aux_B1 all_inputs - 3
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_2_B1)
+
+	zparse_flags_get_all_inputs flag_aux_B1 all_inputs - -
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_3_B1)
+
+	zparse_flags_get_all_inputs flag_aux_B1 all_inputs 2 4
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_3_B1)
+
+
+	zparse_flags_get_all_inputs flag_aux_B2 all_inputs
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_B2)
+
+	zparse_flags_get_all_inputs flag_aux_B2 all_inputs 2 4
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_1_B2)
+
+
+				# -o -oA -o -oB --opt=C -oD
+	zparse_flags_get_all_inputs flag_aux_O1 all_inputs
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O1)
+	else
+		comp_inputs=(" A A "  " B B "  " C C "  " D D ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_O1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_O1 all_inputs 3 -
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O1)
+	else
+		comp_inputs=(" B B "  " C C "  " D D ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_1_O1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_O1 all_inputs - 4
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O1)
+	else
+		comp_inputs=(" A A "  " B B ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_2_O1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_O1 all_inputs - -
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O1)
+	else
+		comp_inputs=(" A A "  " B B "  " C C "  " D D ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_3_O1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_O1 all_inputs 3 5
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O1)
+	else
+		comp_inputs=(" B B "  " C C ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_4_O1)
+	fi
+
+
+	zparse_flags_get_all_inputs flag_aux_O2 all_inputs
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_O2)
+
+	zparse_flags_get_all_inputs flag_aux_O2 all_inputs 2 4
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_1_O2)
+
+
+				# -mM -mN --man=O --man P -m Q
+	zparse_flags_get_all_inputs flag_aux_M1 all_inputs
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M1)
+	else
+		comp_inputs=(" M M " " N N " " O O " " P P " " Q Q ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_M1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_M1 all_inputs 2 -
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M1)
+	else
+		comp_inputs=(" N N " " O O " " P P " " Q Q ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_1_M1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_M1 all_inputs - 3
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M1)
+	else
+		comp_inputs=(" M M " " N N " " O O ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_2_M1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_M1 all_inputs - -
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M1)
+	else
+		comp_inputs=(" M M " " N N " " O O " " P P " " Q Q ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_3_M1)
+	fi
+
+	zparse_flags_get_all_inputs flag_aux_M1 all_inputs 2 4
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M1)
+	else
+		comp_inputs=(" N N " " O O " " P P ")
+		[[ $all_inputs != $comp_inputs || $#all_inputs != $#comp_inputs ]] && \
+			failed_funcs+=(zparse_flags_get_all_inputs:input_mismatch_4_M1)
+	fi
+
+
+	zparse_flags_get_all_inputs flag_aux_M2 all_inputs
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_M2)
+
+	zparse_flags_get_all_inputs flag_aux_M2 all_inputs 2 4
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_get_all_inputs:input_1_M2)
+
+
+	#~~~~ zparse_flags_get_number ~~~~#
+	out_val=$(zparse_flags_get_number flag_aux_B1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_B1)
+	else
+		[[ $out_val != 13 ]] && failed_funcs+=(zparse_flags_get_number:val_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_1_B1)
+	else
+		[[ $out_val != 1 ]] && failed_funcs+=(zparse_flags_get_number:val_1_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_2_B1)
+	else
+		[[ $out_val != 2 ]] && failed_funcs+=(zparse_flags_get_number:val_2_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_3_B1)
+	else
+		[[ $out_val != 2 ]] && failed_funcs+=(zparse_flags_get_number:val_3_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_4_B1)
+	else
+		[[ $out_val != 8 ]] && failed_funcs+=(zparse_flags_get_number:val_4_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_5_B1)
+	else
+		[[ $out_val != 13 ]] && failed_funcs+=(zparse_flags_get_number:val_5_B1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_B2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_number:ret_B2)
+
+
+
+	out_val=$(zparse_flags_get_number flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_O1)
+	else
+		[[ $out_val != 9 ]] && failed_funcs+=(zparse_flags_get_number:val_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_1_O1)
+	else
+		[[ $out_val != 1 ]] && failed_funcs+=(zparse_flags_get_number:val_1_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_2_O1)
+	else
+		[[ $out_val != 2 ]] && failed_funcs+=(zparse_flags_get_number:val_2_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_3_O1)
+	else
+		[[ $out_val != 3 ]] && failed_funcs+=(zparse_flags_get_number:val_3_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_4_O1)
+	else
+		[[ $out_val != 6 ]] && failed_funcs+=(zparse_flags_get_number:val_4_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_5_O1)
+	else
+		[[ $out_val != 7 ]] && failed_funcs+=(zparse_flags_get_number:val_5_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_6_O1)
+	else
+		[[ $out_val != 9 ]] && failed_funcs+=(zparse_flags_get_number:val_6_O1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_O2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_number:ret_O2)
+
+
+
+	out_val=$(zparse_flags_get_number flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_M1)
+	else
+		[[ $out_val != 14 ]] && failed_funcs+=(zparse_flags_get_number:val_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_1_M1)
+	else
+		[[ $out_val != 4 ]] && failed_funcs+=(zparse_flags_get_number:val_1_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_2_M1)
+	else
+		[[ $out_val != 5 ]] && failed_funcs+=(zparse_flags_get_number:val_2_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_3_M1)
+	else
+		[[ $out_val != 10 ]] && failed_funcs+=(zparse_flags_get_number:val_3_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_4_M1)
+	else
+		[[ $out_val != 11 ]] && failed_funcs+=(zparse_flags_get_number:val_4_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_number:ret_5_M1)
+	else
+		[[ $out_val != 14 ]] && failed_funcs+=(zparse_flags_get_number:val_5_M1)
+	fi
+
+	out_val=$(zparse_flags_get_number flag_aux_M2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_number:ret_M2)
+
+
+	#~~~~ zparse_flags_get_full_number ~~~~#
+	out_val=$(zparse_flags_get_full_number flag_aux_B1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_B1)
+	else
+		[[ $out_val != 13 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_1_B1)
+	else
+		[[ $out_val != 1.1 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_1_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_2_B1)
+	else
+		[[ $out_val != 2.1 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_2_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_3_B1)
+	else
+		[[ $out_val != 2.2 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_3_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_4_B1)
+	else
+		[[ $out_val != 8 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_4_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_5_B1)
+	else
+		[[ $out_val != 13 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_5_B1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_B2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_full_number:ret_B2)
+
+
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_O1)
+	else
+		[[ $out_val != 9 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_1_O1)
+	else
+		[[ $out_val != 1.2 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_1_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_2_O1)
+	else
+		[[ $out_val != 2.3 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_2_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_3_O1)
+	else
+		[[ $out_val != 3 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_3_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_4_O1)
+	else
+		[[ $out_val != 6 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_4_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_5_O1)
+	else
+		[[ $out_val != 7 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_5_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_6_O1)
+	else
+		[[ $out_val != 9 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_6_O1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_O2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_full_number:ret_O2)
+
+
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_M1)
+	else
+		[[ $out_val != 14 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_1_M1)
+	else
+		[[ $out_val != 4 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_1_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_2_M1)
+	else
+		[[ $out_val != 5 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_2_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_3_M1)
+	else
+		[[ $out_val != 10 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_3_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_4_M1)
+	else
+		[[ $out_val != 11 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_4_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_full_number:ret_5_M1)
+	else
+		[[ $out_val != 14 ]] && \
+			failed_funcs+=(zparse_flags_get_full_number:val_5_M1)
+	fi
+
+	out_val=$(zparse_flags_get_full_number flag_aux_M2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_full_number:ret_M2)
+
+
+	#~~~~ zparse_flags_get_chain_number ~~~~#
+	# -ho -hhoA -o -mM -mN -oB --opt=C -h -oD --man=O --man P --help -m Q
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_B1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_B1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_chain_number:ret_1_B1)
+	else
+		[[ $out_val != 1 ]] && \
+			failed_funcs+=(zparse_flags_get_chain_number:val_1_B1)
+	fi
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_chain_number:ret_2_B1)
+	else
+		[[ $out_val != 1 ]] && \
+			failed_funcs+=(zparse_flags_get_chain_number:val_2_B1)
+	fi
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_chain_number:ret_3_B1)
+	else
+		[[ $out_val != 2 ]] && \
+			failed_funcs+=(zparse_flags_get_chain_number:val_3_B1)
+	fi
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1 4)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_4_B1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_4_B1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B1 5)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_5_B1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_5_B1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_B2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_B2)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_B2)
+
+
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_O1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_O1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_chain_number:ret_1_O1)
+	else
+		[[ $out_val != 2 ]] && \
+			failed_funcs+=(zparse_flags_get_chain_number:val_1_O1)
+	fi
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_chain_number:ret_2_O1)
+	else
+		[[ $out_val != 3 ]] && \
+			failed_funcs+=(zparse_flags_get_chain_number:val_2_O1)
+	fi
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 3)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_3_O1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_3_O1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 4)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_4_O1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_4_O1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 5)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_5_O1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_5_O1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O1 6)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_6_O1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_6_O1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_O2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_O2)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_O2)
+
+
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1 1)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_1_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_1_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1 2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_2_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_2_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1 3)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_3_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_3_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1 4)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_4_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_4_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M1 5)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_5_M1)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_5_M1)
+
+	out_val=$(zparse_flags_get_chain_number flag_aux_M2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_chain_number:ret_M2)
+	[[ -n $out_val ]] && failed_funcs+=(zparse_flags_get_chain_number:val_M2)
+
+
+	#~~~~ zparse_flags_get_flag ~~~~#
+	out_val=$(zparse_flags_get_flag flag_aux_B1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_B1)
+	else
+		[[ $out_val != "--help" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_1_B1)
+	else
+		[[ $out_val != "-h" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_1_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_2_B1)
+	else
+		[[ $out_val != "-h" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_2_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_3_B1)
+	else
+		[[ $out_val != "-h" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_3_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_4_B1)
+	else
+		[[ $out_val != "-h" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_4_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_5_B1)
+	else
+		[[ $out_val != "--help" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_5_B1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_B2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_flag:ret_B2)
+
+
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_1_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_1_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_2_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_2_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_3_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_3_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_4_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_4_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_5_O1)
+	else
+		[[ $out_val != "--opt" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_5_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O1 6)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_6_O1)
+	else
+		[[ $out_val != "-o" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_6_O1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_O2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_flag:ret_O2)
+
+
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_M1)
+	else
+		[[ $out_val != "-m" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1 1)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_1_M1)
+	else
+		[[ $out_val != "-m" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_1_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1 2)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_2_M1)
+	else
+		[[ $out_val != "-m" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_2_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1 3)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_3_M1)
+	else
+		[[ $out_val != "--man" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_3_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1 4)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_4_M1)
+	else
+		[[ $out_val != "--man" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_4_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M1 5)
+	ret_val=$?
+	if ((ret_val != 0)); then
+		failed_funcs+=(zparse_flags_get_flag:ret_5_M1)
+	else
+		[[ $out_val != "-m" ]] && \
+			failed_funcs+=(zparse_flags_get_flag:val_5_M1)
+	fi
+
+	out_val=$(zparse_flags_get_flag flag_aux_M2)
+	ret_val=$?
+	((ret_val != 1)) && failed_funcs+=(zparse_flags_get_flag:ret_M2)
+
+
+	# -ho -hhoA -o -mM -mN -oB --opt=C -h -oD --man=O --man P --help -m Q \
+	# A -- -m Q -q --q -- P
+	#~~~~ zparse_flags_is_IAU_S ~~~~#
+	zparse_flags_is_IAU_S flag_aux_B1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:B1)
+
+	zparse_flags_is_IAU_S flag_aux_B1 1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:B1_1)
+
+	zparse_flags_is_IAU_S flag_aux_O1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:O1)
+
+	zparse_flags_is_IAU_S flag_aux_O1 1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:O1_1)
+
+	zparse_flags_is_IAU_S flag_aux_M1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:M1)
+
+	zparse_flags_is_IAU_S flag_aux_M1 1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:M1_1)
+
+	zparse_flags_is_IAU_S flag_aux_S 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:S)
+
+	zparse_flags_is_IAU_S flag_aux_S 1 2>/dev/null
+	ret_val=$?
+	((ret_val != 2)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:S_1)
+
+	zparse_flags_is_IAU_S flag_aux_I
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I)
+
+	zparse_flags_is_IAU_S flag_aux_I -
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_last)
+
+	zparse_flags_is_IAU_S flag_aux_I 1
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_1)
+
+	zparse_flags_is_IAU_S flag_aux_I 2
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_2)
+
+	zparse_flags_is_IAU_S flag_aux_I 3
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_3)
+
+	zparse_flags_is_IAU_S flag_aux_I 4
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_4)
+
+	zparse_flags_is_IAU_S flag_aux_I 5
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_5)
+
+	zparse_flags_is_IAU_S flag_aux_I 6
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_6)
+
+	zparse_flags_is_IAU_S flag_aux_I 7
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_IAU_S:I_7)
+
+
+	#~~~~ zparse_flags_is_input_after ~~~~#
+	zparse_flags_is_input_after flag_aux_B1 1 flag_aux_B1 1
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_self_1)
+
+	zparse_flags_is_input_after flag_aux_B1 1 flag_aux_B1 2
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_self_2)
+
+	zparse_flags_is_input_after flag_aux_B1 2 flag_aux_B1 3
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_self_3)
+
+	zparse_flags_is_input_after flag_aux_B1 4 flag_aux_B1 3
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_self_4)
+
+	zparse_flags_is_input_after flag_aux_B1 5 flag_aux_B1 5
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_self_5)
+
+	zparse_flags_is_input_after flag_aux_B1 1 flag_aux_O1 1
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_O1_1)
+
+	zparse_flags_is_input_after flag_aux_B1 4 flag_aux_O1 2
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_input_after:B1_O1_2)
+
+	zparse_flags_is_input_after flag_aux_O1 - flag_aux_M1 3
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:O1_M1_1)
+
+	zparse_flags_is_input_after flag_aux_B1 - flag_aux_O1 -
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_is_input_after:last_BO)
+
+	zparse_flags_is_input_after flag_aux_B1 - flag_aux_M1 -
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:last_BM)
+
+	zparse_flags_is_input_after flag_aux_O1 - flag_aux_M1 -
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_is_input_after:last_OM)
+
+
+	#~~~~ zparse_flags_add_flag ~~~~#
+	typeset -a comp_usage
+	typeset -A comp_inputs
+	zparse_flags_add_flag flag_aux_O1 10 -h || \
+		failed_funcs+=(zparse_flags_add_flag:ret_O1_1)
+	zparse_flags_add_flag flag_aux_O1 6 Z 'i1' || \
+		failed_funcs+=(zparse_flags_add_flag:ret_O1_2)
+	zparse_flags_add_flag flag_aux_O1 -3 'a A' '<i2' || \
+		failed_funcs+=(zparse_flags_add_flag:ret_O1_3)
+	zparse_flags_add_flag flag_aux_O1 -3.2 ' ' '>i3' || \
+		failed_funcs+=(zparse_flags_add_flag:ret_O1_4)
+	zparse_flags_add_flag flag_aux_O1 -3.1 ',' '><' || \
+		failed_funcs+=(zparse_flags_add_flag:ret_O1_4)
+
+	comp_usage=("-3.2, "   "-3.1,,"   "-3,a A"   1.2,-o   2.3,-o   \
+				3,-o   6,-o   6,Z   7,--opt   9,-o   10,-h)
+
+	comp_inputs=("-3,a A" ":<i2"    1.2,-o _    "-3.2, " ":>i3"   \
+				 2.3,-o ":< A A "    3,-o _    6,-o ":< B B "         \
+				 6,Z ":>i1"    7,--opt ":< C C "    9,-o ":< D D "    \
+				 10,-h _ "-3.1,," ":><")
+
+	[[ $flag_aux_O1__info != $comp_usage || \
+		$#flag_aux_O1__info != $#comp_usage ]] && \
+			failed_funcs+=(zparse_flags_add_flag:usage_O1)
+
+	for i in ${(k)flag_aux_O1__inputs}; do
+		if [[ ${flag_aux_O1__inputs[$i]} != ${comp_inputs[$i]} ]]; then
+			failed_funcs+=(zparse_flags_add_flag:inputs_O1_pro)
+			break
+		fi
+	done
+
+	for i in ${(k)comp_inputs}; do
+		if [[ ${flag_aux_O1__inputs[$i]} != ${comp_inputs[$i]} ]]; then
+			failed_funcs+=(zparse_flags_add_flag:inputs_O1_rev)
+			break
+		fi
+	done
+
+	#~~~~ zparse_flags_add_flag_before ~~~~#
+	zparse_flags_add_flag_before flag_aux_B1 -1 -x || \
+		failed_funcs+=(zparse_flags_add_flag_before:ret_B1_1)
+	zparse_flags_add_flag_before flag_aux_B1 -2 y 'i1' || \
+		failed_funcs+=(zparse_flags_add_flag_before:ret_B1_2)
+	zparse_flags_add_flag_before flag_aux_B1 -3 'z Z' '<i2' || \
+		failed_funcs+=(zparse_flags_add_flag_before:ret_B1_3)
+	zparse_flags_add_flag_before flag_aux_B1 -4 '-- ' '>i3' || \
+		failed_funcs+=(zparse_flags_add_flag_before:ret_B1_4)
+
+	comp_usage=("-4,-- "  "-3,z Z"  -2,y  -1,-x  1.1,-h  2.1,-h \
+				2.2,-h  8,-h  13,--help)
+
+	comp_inputs=("-4,-- "  ":>i3"  "-3,z Z"  ":<i2"  -2,y  ":>i1"  \
+				 -1,-x  _  1.1,-h  _  2.1,-h  _  2.2,-h  _  8,-h  _  \
+				 13,--help  _)
+
+	[[ $flag_aux_B1__info != $comp_usage || \
+		$#flag_aux_B1__info != $#comp_usage ]] && \
+			failed_funcs+=(zparse_flags_add_flag_before:usage_B1)
+
+	for i in ${(k)flag_aux_B1__inputs}; do
+		if [[ ${flag_aux_B1__inputs[$i]} != ${comp_inputs[$i]} ]]; then
+			failed_funcs+=(zparse_flags_add_flag_before:inputs_B1_pro)
+			break
+		fi
+	done
+
+	for i in ${(k)comp_inputs}; do
+		if [[ ${flag_aux_B1__inputs[$i]} != ${comp_inputs[$i]} ]]; then
+			failed_funcs+=(zparse_flags_add_flag_before:inputs_B1_rev)
+			break
+		fi
+	done
+
+	#~~~~ zparse_flags_has_flag_in_recognized_list ~~~~#
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_B1)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_B1)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_B1)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_B2)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_B2)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_B2)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_O1)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_O1)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_O1)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_O2)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_O2)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_O2)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_M1)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_M1)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_M1)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_M2)
+	ret_val=$?
+	((ret_val != 0)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_M2)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_M2)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_fake)
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_fake)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_fake)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_)
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_fake_1)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_fake_1)
+
+	out_val=$(zparse_flags_has_flag_in_recognized_list flag_aux_B11)
+	ret_val=$?
+	((ret_val != 1)) && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:ret_fake_2)
+	[[ -n $out_val ]] && \
+		failed_funcs+=(zparse_flags_has_flag_in_recognized_list:val_fake_2)
+
+
+	#~~~~ zparse_flags_split_input ~~~~#
+	local input_to_split
+	typeset -a split_input
+	typeset -a split_compare
+	
+	input_to_split=":a,b c,d:e:f::,::g,,h ,, i,,j:k,,"
+	split_compare=(:a "b c" d:e:f:: ::g "h " " i" j:k)
+	if zparse_flags_split_input input_to_split split_input; then
+		[[ $split_input != $split_compare || \
+			$#split_input != $#split_compare ]] && \
+				failed_funcs+=(zparse_flags_split_input:val_1)
+	else
+		failed_funcs+=(zparse_flags_split_input:ret_1)
+	fi
+
+	split_compare=(:a,b c,d:e:f::,::g,,h ,, i,,j:k,,)
+	if zparse_flags_split_input input_to_split split_input ' '; then
+		[[ $split_input != $split_compare || \
+			$#split_input != $#split_compare ]] && \
+				failed_funcs+=(zparse_flags_split_input:val_2)
+	else
+		failed_funcs+=(zparse_flags_split_input:ret_2)
+	fi
+
+	split_compare=("a,b c,d" e f , "g,,h ,, i,,j" k,,)
+	if zparse_flags_split_input input_to_split split_input : ; then
+		[[ $split_input != $split_compare || \
+			$#split_input != $#split_compare ]] && \
+				failed_funcs+=(zparse_flags_split_input:val_3)
+	else
+		failed_funcs+=(zparse_flags_split_input:ret_3)
+	fi
+
+	input_to_split='a\:b,c\x\n,:,:\'
+	split_compare=('a:b,c\x\n,' , '\')
+	if zparse_flags_split_input input_to_split split_input : ; then
+		[[ $split_input != $split_compare || \
+			$#split_input != $#split_compare ]] && \
+				failed_funcs+=(zparse_flags_split_input:val_4)
+	else
+		failed_funcs+=(zparse_flags_split_input:ret_4)
+	fi
+
+	input_to_split='(a:b):(cd):e:f:\(gh\):'
+	split_compare=("(a:b)" "(cd)" e f "(gh)")
+	if zparse_flags_split_input input_to_split split_input : '(' ')'; then
+		#echo "($#split_input) [$split_input]"
+		[[ $split_input != $split_compare || \
+			$#split_input != $#split_compare ]] && \
+				failed_funcs+=(zparse_flags_split_input:val_5)
+	else
+		failed_funcs+=(zparse_flags_split_input:ret_5)
+	fi
+
+	#~~~~ zparse_flags_split_command ~~~~#
+	local command_to_split
+	local split_command
+	local split_parameter
+	local split_command_compare
+	local split_parameter_compare
+
+	command_to_split="com1=into_this"
+	split_command_compare="com1"
+	split_parameter_compare="into_this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_1)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_1)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_1)
+	fi
+
+	command_to_split="com1\\="
+	split_command_compare="com1="
+	split_parameter_compare=""
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_2)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_2)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_2)
+	fi
+
+	command_to_split="com1\\==into_this"
+	split_command_compare="com1="
+	split_parameter_compare="into_this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_3)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_3)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_3)
+	fi
+
+	command_to_split="=com1=into_this"
+	split_command_compare="=com1"
+	split_parameter_compare="into_this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_4)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_4)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_4)
+	fi
+
+	command_to_split="\\=com1=into_this"
+	split_command_compare="=com1"
+	split_parameter_compare="into_this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_5)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_5)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_5)
+	fi
+
+	command_to_split="com1==into_this"
+	split_command_compare="com1"
+	split_parameter_compare="=into_this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_6)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_6)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_6)
+	fi
+
+	command_to_split="com1=into=this"
+	split_command_compare="com1"
+	split_parameter_compare="into=this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_7)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_7)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_7)
+	fi
+
+	command_to_split="com1=into\\=this"
+	split_command_compare="com1"
+	split_parameter_compare="into=this"
+	if zparse_flags_split_command command_to_split split_command split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_8)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_8)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_8)
+	fi
+
+	command_to_split="com1=into_this"
+	split_command_compare="com1"
+	split_parameter_compare=""
+	split_parameter=""
+	if zparse_flags_split_command command_to_split split_command
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_9)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_9)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_9)
+	fi
+
+	command_to_split="com1=into_this"
+	split_command_compare=""
+	split_command=""
+	split_parameter_compare="into_this"
+	if zparse_flags_split_command command_to_split '' split_parameter
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_10)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_10)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_10)
+	fi
+
+	command_to_split="com1=into:this:val"
+	split_command_compare="com1=into"
+	split_parameter_compare="this:val"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_10)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_10)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_10)
+	fi
+
+	command_to_split="com1=into::this"
+	split_command_compare="com1=into"
+	split_parameter_compare=":this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_11)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_11)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_11)
+	fi
+	command_to_split="com1=into\\::this"
+	split_command_compare="com1=into:"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_12)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_12)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_12)
+	fi
+	command_to_split=":com1=into:this"
+	split_command_compare=":com1=into"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_13)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_13)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_13)
+	fi
+	command_to_split="\\:com1=into:this"
+	split_command_compare=":com1=into"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_14)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_14)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_14)
+	fi
+	command_to_split="com1=into:\\:this"
+	split_command_compare="com1=into"
+	split_parameter_compare=":this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_15)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_15)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_15)
+	fi
+	command_to_split="com1=i\\nto:this"
+	split_command_compare="com1=i\\nto"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_16)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_16)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_16)
+	fi
+	command_to_split="com1=into\\x:this"
+	split_command_compare="com1=into\\x"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_17)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_17)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_17)
+	fi
+	command_to_split="com1=into\\\\:this"
+	split_command_compare="com1=into\\\\"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_18)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_18)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_18)
+	fi
+	command_to_split="\\=com1=into:this"
+	split_command_compare="\\=com1=into"
+	split_parameter_compare="this"
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_19)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_19)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_19)
+	fi
+	command_to_split="com1=into\\:this"
+	split_command_compare="com1=into:this"
+	split_parameter_compare=""
+	if zparse_flags_split_command command_to_split \
+											split_command split_parameter :
+	then
+		[[ $split_command != $split_command_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_command_20)
+		[[ $split_parameter != $split_parameter_compare ]] && \
+			failed_funcs+=(zparse_flags_split_command:val_param_20)
+	else
+		failed_funcs+=(zparse_flags_split_command:ret_20)
+	fi
+
+
+
+	if [[ -z $failed_funcs ]]; then
+		echo "${setcolour[lgreen]}OK${setcolour[off]}"
+	else
+		((++fail_count))
+		fail_list+=($count)
+		echo "${setcolour[lred]}FAIL${setcolour[off]}  {${setcolour[lblue]}$failed_funcs${setcolour[off]}}"
+	fi
+}
+
+
+
+if [[ -n $args ]]; then
+
+	#export zparse_flags_internal_error_quiet=1
+	export zparse_flags_usage_rename='x%n_info'
+	export zparse_flags_inputs_rename='x%n_inputs'
+
+	export zparse_flags_error_start="${setcolour[bwhite]}${setcolour[dim]}${setcolour[lred]}${setcolour[italic]}$progname shell: "
+	export zparse_flags_error_end="${setcolour[off]}"
+	export zparse_flags_info_start="${setcolour[lgreen]}${setcolour[italic]}$progname shell: "
+	export zparse_flags_info_end="${setcolour[off]}"
+	export zparse_flags_loader_verbose=y
+	export zparse_flags_list_recognized_flags=1
+	export zparse_flags_list_recognized_flags_name=flags_names_list
+
+
+	#zparse_flags f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 fS fI fA \
+	#zparse_flags f14 \
+	zparse_flags f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 \
+				f17 f18 f19 fS fI \
+				--- $args
+	integer exit_status=$?
+	echo "$progname: zparse_flags returned: ${setcolour[teal]}$exit_status${setcolour[off]}"
+
+
+	if ((!exit_status)); then
+		echo
+		echo "${setcolour[gold]}All data:${setcolour[off]}"
+		for flagi in f{1..19} fS fI fA fA4 fU; do
+			print_raw_inputs $flagi
+		done
+
+		echo
+		echo "${setcolour[gold]}Last flag data:${setcolour[off]}"
+		for flagi in f{1..19} fS fI fA fA4 fU; do
+			display $flagi
+		done
+
+
+		echo
+		echo "${setcolour[gold]}Supplemental:${setcolour[off]}"
+		echo "--------------------------------------------"
+		local inputxx=$1
+		echo "input: [$inputxx]"
+		zparse_flags_split_command inputxx command param
+		echo "command: [$command] param: [$param] (exit: $?)"
+		typeset -a split
+		zparse_flags_split_input inputxx split
+		echo "split:   [$split] (exit: $?)"
+		echo "--------------------------------------------"
+	fi
+
+
+
+else
+	integer count
+	integer run_count
+	integer fail_count
+	typeset -a f1x f2x f3x f4x f5x f6x f7x f8x f9x f10x f11x f12x f13x f14x \
+			   f15x f16x f17x f18x f19x fIx fAx fA4x fUx fSx
+	typeset -a fail_list
+
+
+	# checks of zparse_flags auxiliary functions:
+	echo
+	run_aux_checks
+
+	# checks of zparse_flags:
+	#export zparse_flags_internal_error_quiet=1
+	export zparse_flags_usage_rename=_info
+	export zparse_flags_inputs_rename=_inputs
+
+	export zparse_flags_list_recognized_flags=1
+	export zparse_flags_list_recognized_flags_name=flags_names_list
+
+
+	# 1
+	expx=2
+	exp="zparse_flags: internal error: zparse_flags: need a list of flag specifications and the list of command-line arguments."
+	run_check ---
+
+	# 2
+	expx=1
+	exp="error: arg 4: flag ‘-h’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -h -hh --help -hX
+
+	# 3
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘-h’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -tthX
+
+	# 4
+	expx=1
+	exp="error: arg 1: flag ‘-h’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -h=X
+
+	# 5
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-h’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hh=X
+
+	# 6
+	expx=1
+	exp="error: arg 1: flag ‘-h’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -h=
+
+	# 7
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-h’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -th=
+
+	# 8
+	expx=1
+	exp="error: arg 1: flag ‘--help’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --help=
+
+	# 9
+	expx=1
+	exp="error: arg 1: flag ‘--help’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --help=X
+
+	# 10
+	expx=1
+	exp="error: arg 1: unrecognized flag: ‘--helpX’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --helpX
+
+	# 11
+	expx=0
+	exp=""
+	f1x=(); f2x=(1,-t _ 2,t _); f3x=(3,-x _ 4,x _)
+	f4x=(); f5x=(); f6x=(); f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=()
+	f13x=(); f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -t t -x x
+
+	# 12
+	expx=1
+	exp="error: arg 1: flag ‘t’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- t=X
+
+	# 13
+	expx=1
+	exp="error: arg 1: flag ‘x’: flag does not take an input: ‘Y’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- x=Y
+
+	# 14
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘-h’: flag does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hthx
+
+	# 15
+	expx=1
+	exp="error: arg 5, flag 2: flag ‘-t’: flag does not take an input: ‘xy’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hth -h -t -x -htxy
+
+	# 16
+	expx=1
+	exp="error: arg 2: unrecognized argument: ‘h’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -h h
+
+	# 17
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘t’: flag does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttx
+
+	# 18
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘t’: flag does not take an input: ‘xx’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttxx
+
+	# 19
+	expx=0
+	exp=""
+	f1x=(1,long _); f2x=(2,short _);
+	f3x=(); f4x=(); f5x=(); f6x=(); f7x=(); f8x=(); f9x=(); f10x=(); f11x=()
+	f12x=(); f13x=(); f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- long short
+
+	# 20
+	expx=0
+	exp=""
+	f1x=()
+	f2x=(1.1,t _ 1.2,t _ 1.3,short _ 2.1,short _ 2.2,t _ \
+		 2.3,t _ 2.4,short _);
+	f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=()
+	f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttshort shortttshort
+
+	# 21
+	expx=1
+	exp="error: arg 1: unrecognized argument: ‘longlong’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- longlong
+
+	# 22
+	expx=1
+	exp="error: arg 1: unrecognized flag: ‘-HH’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -HH
+
+	# 23
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘short’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- shortshort=
+
+	# 24
+	expx=1
+	exp="error: arg 2: flag ‘long’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- shorttshort long=
+
+	# 25
+	expx=1
+	exp="error: arg 3: flag ‘long’: flag does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- long shorttshorttt long=x
+
+	# 26
+	expx=0
+	exp=""
+	f1x=(1.1,-h _ 2.1,-h _); f2x=(3.1,-t _ 4.1,-t _); f3x=()
+	f4x=(1.2,-o _ 2.2,-o ":<X"); f5x=(); f6x=()
+	f7x=(3.2,-m ":<Y" 4.2,-m ":>Z" 6,-m ":<P" 7,-m ":>Q")
+	f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=()
+	f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -ho -hoX -tmY -tm Z -mP -m Q
+
+	# 27
+	expx=1
+	exp="error: arg 1, flag 4: flag ‘-m’ needs an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hthm
+
+	# 28
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=()
+	f5x=(1,-p _ 2,--pan _)
+	f6x=(); f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -p --pan
+
+	# 29
+	expx=1
+	exp="error: arg 4: flag ‘--pan’: unrecognized command: ‘bare0’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -pbare --pan=bare -pbare1 --pan=bare0
+
+	# 30
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-p’: unrecognized command: ‘bare14’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -tpbare14
+
+	# 31
+	expx=1
+	exp="error: arg 1: flag ‘--pan’: unrecognized command: ‘Bare’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --pan=Bare
+
+	# 32
+	expx=0
+	exp=""
+	f1x=(); f2x=(4.1,t _ 8.1,t _ 8.2,t _); f3x=()
+	f4x=(); f5x=()
+	f6x=(1,A _ 2,apt _ 3,A ":<lib=yes" 4.2,A ":<libexam3k02=no" \
+		 5,A ":<libx=yes8" 6,apt ":<lib=no" 7,apt ":<lib0241=yes3" \
+		 8.3,apt ":<libhde=yes24")
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  A apt Alib=yes tAlibexam3k02=no Alibx=yes8 apt=lib=no \
+			  apt=lib0241=yes3 ttapt=libhde=yes24
+
+	# 33
+	expx=1
+	exp="error: arg 1: flag ‘A’: unrecognized command: ‘libX’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- AlibX
+
+	# 34
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘A’: command ‘libhde’: required input is missing."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttAlibhde
+
+	# 35
+	expx=1
+	exp="error: arg 1: flag ‘apt’: command ‘libop’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- apt=libop=
+
+	# 36
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘apt’: command ‘libop’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- tapt=libop=
+
+	# 37
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘apt’: command ‘libop’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttapt=libop=
+
+	# 38
+	expx=1
+	exp="error: arg 1: flag ‘apt’: command ‘libnd’: required input is missing."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- apt=libnd
+
+	# 39
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘apt’: command ‘libnd’: required input is missing."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- tapt=libnd
+
+	# 40
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘apt’: command ‘libnd’: required input is missing."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttapt=libnd
+
+	# 41
+	expx=1
+	exp="error: arg 1: flag ‘A’: unrecognized command: ‘libZ’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- AlibZ
+
+	# 42
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘A’: unrecognized command: ‘libZ’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- tAlibZ
+
+	# 43
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘A’: unrecognized command: ‘libZ’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttAlibZ
+
+	# 44
+	expx=0
+	exp=""
+	f1x=(1,-h _ 9.1,-h _ 10.1,-h _ 10.2,-h _); f2x=(2,-t _)
+	f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(3,-m ":<A" 4,-m ":>B" 6,--man ":<C" 7,--man ":>D" 9.2,-m ":<A" \
+		 10.3,-m ":<B")
+	f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=()
+	f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -h -t -mA -m B --man=C --man D -hmA -hhmB
+
+	# 45
+	expx=1
+	exp="error: arg 1: flag ‘-m’ needs an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -m
+
+	# 46
+	expx=1
+	exp="error: arg 2, flag 2: flag ‘-m’ needs an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hmA -hm
+
+	# 47
+	expx=1
+	exp="error: arg 2: flag ‘--man’ needs an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --man=X --man
+
+	# 48
+	expx=1
+	exp="error: arg 3: flag ‘--man’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --man Y --man=
+
+	# 49
+	expx=0
+	exp=""
+	f1x=(4.1,-h _ 6.1,-h _ 7.1,-h _ 7.2,-h _ 9.1,-h _ 9.2,-h _)
+	f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=()
+	f8x=(1,-f ":>opt0" 3,-f ":<opt0" 4.2,-f ":>opt0" 6.2,-f ":<opt0" \
+		 7.3,-f ":>opt0" 9.3,-f ":<opt0")
+	f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=(); f16x=()
+	f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -f opt0 -fopt0 -hf opt0 -hfopt0 -hhf opt0 -hhfopt0
+
+	# 50
+	expx=1
+	exp="error: arg 1: flag ‘-f’: command ‘opt0’ does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -f opt0=x
+
+	# 51
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-f’: command ‘opt0’ does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hf opt0=x
+
+	# 52
+	expx=1
+	exp="error: arg 1: flag ‘-f’: command ‘opt0’ does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -fopt0=x
+
+	# 53
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-f’: command ‘opt0’ does not take an input: ‘x’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hfopt0=x
+
+	# 54
+	expx=0
+	exp=""
+	f1x=(2.1,-h _ 4.1,-h _)
+	f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=();
+	f8x=(1,-f ":<opt" 2.2,-f ":<opt" 3,-f ":<opt=a" 4.2,-f ":>opt=b")
+	f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=(); f16x=()
+	f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -fopt -hfopt -fopt=a -hf opt=b
+
+	# 55
+	expx=1
+	exp="error: arg 1: flag ‘-f’: command ‘opt’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -f opt=
+
+	# 56
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-f’: command ‘opt’: unrecognized input: ‘d’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hfopt=d
+
+	# 57
+	expx=0
+	exp=""
+	f1x=(1.1,-h _ 1.2,-h _)
+	f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(1.3,-f ":<opt1"); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hhfopt1
+
+	# 58
+	expx=0
+	exp=""
+	f1x=(1.1,-h _ 1.2,-h _); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(1.3,-f ":>opt1=XC"); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hhf opt1=XC
+
+	# 59
+	expx=0
+	exp=""
+	f1x=(4.1,-h _ 4.2,-h _)
+	f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(1,--file ":<opt2=x" 2,--file ":>opt2=h9" 4.3,-f ":<opt2=x0")
+	f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=(); f16x=()
+	f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --file=opt2=x --file opt2=h9 -hhfopt2=x0
+
+	# 60
+	expx=1
+	exp="error: arg 1: flag ‘-f’: command ‘opt2’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -f opt2=
+
+	# 61
+	expx=1
+	exp="error: arg 1: flag ‘--file’: command ‘opt2’: unrecognized input: ‘s’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --file opt2=s
+
+	# 62
+	expx=1
+	exp="error: arg 1: flag ‘--file’: command ‘opt2’: unrecognized input: ‘9’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --file=opt2=9
+
+	# 63
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘-f’: command ‘opt2’: unrecognized input: ‘s24’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hhfopt2=s24
+
+	# 64
+	expx=0
+	exp=""
+	f1x=(); f2x=(9.1,t _)
+	f3x=(); f4x=(); f5x=(); f6x=(); f7x=(); f8x=()
+	f9x=(1,D ":<dat=X" 2,dev ":<dat=Y" 3,dev ":>ory=fileA" \
+		 5,dev ":>ory=f0815" 7,dev ":>ory=F00" 9.2,D ":>ory=f")
+	f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=(); f16x=(); f17x=()
+	f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  Ddat=X  dev=dat=Y  dev ory=fileA dev ory=f0815  dev ory=F00 \
+			  tD ory=f
+
+	# 65
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘D’: command ‘dat’: required input is missing."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- tD dat
+
+	# 66
+	expx=1
+	exp="error: arg 1, flag 5: flag ‘D’: command ‘dat’: expected input not given."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttttDdat=
+
+	# 67
+	expx=1
+	exp="error: arg 1: flag ‘dev’: command ‘ory’: unrecognized input: ‘filea’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- dev=ory=filea
+
+	# 68
+	expx=1
+	exp="error: arg 1: flag ‘dev’: command ‘ory’: unrecognized input: ‘f92a’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- dev ory=f92a
+
+	# 69
+	expx=1
+	exp="error: arg 1, flag 3: flag ‘D’: command ‘ory’: unrecognized input: ‘file’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- ttD ory=file
+
+	# 70
+	expx=1
+	exp="error: arg 1, flag 2: flag ‘-h’: flag does not take an input: ‘d’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -hhd
+
+	# 71
+	expx=1
+	exp="error: arg 1: unrecognized flag: ‘-X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -X
+
+	# 72
+	expx=1
+	exp="error: arg 1: unrecognized argument: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- X
+
+	# 73
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(1,-f ":<opt0,opt0" 2,-f ":>,,opt0,,opt0,," \
+		 4,--file ":>opt=a,opt=b" 6,--file ":<,opt2,opt2=a9,opt2=x")
+	f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=(); f15x=(); f16x=()
+	f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  -fopt0,opt0 -f ,,opt0,,opt0,, --file opt=a,opt=b \
+			  --file=,opt2,opt2=a9,opt2=x
+
+	# 74
+	expx=1
+	exp="error: arg 1: flag ‘--file’: command ‘opt’: unrecognized input: ‘d’.
+error: arg 1: flag ‘--file’: unrecognized command: ‘A’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --file opt0,opt,opt=d,opt=b,,opt2=y,A,,
+
+	# 75
+	expx=1
+	exp="error: arg 1: flag ‘--bloCK’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --bloCK=X --bloCK
+
+	# 76
+	expx=1
+	exp="error: arg 2: flag ‘--Block’: flag does not take an input."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --bLoCk --Block=
+
+	# 77
+	expx=1
+	exp="error: arg 3: flag ‘-K’: flag does not take an input: ‘L’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -k -K -KL -kK
+
+	# 78
+	expx=1
+	exp="error: arg 1, flag 10: flag ‘-k’: flag does not take an input: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -kkKKhKkKhk=X
+
+	# 79
+	expx=1
+	exp="error: arg 8: unrecognized argument: ‘X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  -attrib +attrib -z -Z +z +Z -attrib X
+
+	# 80
+	expx=0
+	exp=""
+	f1x=(7.1,-h _ 8.1,-h _ 11.2,-h _ 12.2,-h _)
+	f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(12.4,-m ":>-Z" 14.2,-m ":>--blOCk")
+	f8x=(); f9x=()
+	f10x=(9,--bLocK _ 10,--BLOck _ 11.1,-K _ 12.1,-k _ \
+		  12.3,-K _ 14.1,-K _)
+	f11x=(1,-attrib ":<A" 2,+attrib ":<B" 3,-z ":<C" 4,+z ":<h" 5,-Z ":<t" \
+	      6,+Z ":<Z" 7.2,-z _ 8.2,-Z ":<h" 11.3,-Z ":<k")
+	f12x=(); f13x=(); f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  -attrib=A +attrib=B -zC +zh -Zt +ZZ -hz -hZh --bLocK \
+			  --BLOck -KhZk -khKm -Z -Km --blOCk
+
+	# 81
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=()
+	f12x=(1,Jail ":<g" 2,jail ":<jail" 3,g ":<g" 4,g ":<G" 5,G ":<g" \
+		  6,G ":<G" 7,Jail ":>hGh" 9,Jail ":>jail" 11,jail ":>Gh")
+	f13x=(); f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  Jail=g jail=jail gg gG Gg GG Jail hGh Jail jail jail Gh
+
+	# 82
+	expx=1
+	exp="error: arg 1: unrecognized argument: ‘Jailjail’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- Jailjail
+
+	# 83
+	expx=1
+	exp="error: arg 1: unrecognized flag: ‘--jail’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- --jail
+
+	# 84
+	expx=0
+	exp=""
+	f1x=(3,-h _); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(1,-m ":>--"); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI \
+			  --- -m -- -h
+
+	# 85
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(4,--stop _)
+	fIx=(1,_I ":>X" 2,_I ":>Y" 3,_I ":>Z" 5,_IS ":>-h" 6,_IS ":>-m" \
+		 7,_IS ":>--stop" 8,_IS ":>--")
+	fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI \
+			  --- X Y Z --stop -h -m --stop -- 
+
+	# 86
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(1,-m ":>--"); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	f14x=(); f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(3,-- _); fIx=(4,_I ":>X"); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI \
+			  --- -m -- -- X
+
+	# 87
+	expx=1
+	exp="error: arg 4: unrecognized flag: ‘-X’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI \
+			  --- A B C -X
+
+	# 88
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fIx=(1,_I ":>W" 2,_I ":>X" 3,_I ":>YZ")
+	fSx=(); fAx=(); fUx=()
+	fA4x=(4,_A ":>-X" 5,_A ":>-Ya" 6,_A ":>--D" 7,_A ":>--EF")
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI fA4 \
+			  --- W X YZ -X -Ya --D --EF
+
+	# 89
+	expx=1
+	exp="error: arg 5: surplus input: ‘-Q’."
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(); fIx=()
+	fA4x=(1,_A ":>--Xa" 2,_A ":>-Xasd" 3,_A ":>-s-" 4,_A ":>---")
+	fAx=(); fUx=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI fA4 \
+			  --- --Xa -Xasd -s- --- -Q
+
+	# 90
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(6,-- _)
+	fIx=(1,_I ":>W" 2,_I ":>X" 3,_I ":>Y" 7,_IS ":>D" 8,_IS ":>-h" \
+		 9,_IS ":>-T" 10,_IS ":>A" 11,_IS ":>apt" 12,_I ":>Uk" 13,_I ":>Uj")
+	fAx=(4,_A ":>-Q" 5,_A ":>-G" 7,_AS ":>D" 8,_AS ":>-h" 9,_A ":>-T" \
+		 10,_AS ":>A" 11,_AS ":>apt")
+	fUx=(1,_U ":>W" 2,_U ":>X" 3,_U ":>Y" 4,_U ":>-Q" 5,_U ":>-G" \
+		 7,_US ":>D" 8,_US ":>-h" 9,_U ":>-T" 10,_US ":>A" 11,_US ":>apt" \
+		 12,_U ":>Uk" 13,_U ":>Uj")
+	fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fI fA fU \
+			  --- W X Y -Q -G -- D -h -T A apt Uk Uj
+	# ‘D’, ‘A’ and ‘apt’ are declared flag names, so should be caught by
+	# the A flag variable after the stop flag, ‘--’.
+
+	# 91
+	expx=1
+	exp="error: arg 5: unrecognized argument: ‘STOP’."
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(1,A _)
+	f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	fSx=(2,stop _); fIx=(); fAx=(3,_AS ":>A" 4,_AS ":>Stop"); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fS fA \
+			  --- A stop A Stop STOP
+
+	# 92
+	expx=1
+	exp="error: arg 1: flag ‘-h’: flag does not take an input: ‘o’.
+error: arg 2: unrecognized flag: ‘-p’."
+	# f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	# f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	# fSx=(); fIx=(); fAx=(); fUx=()
+	run_check f1 --- -ho -p
+
+	# 93
+	expx=1
+	exp="error: arg 4: flag ‘D’: command ‘dat’: required input is missing.
+error: arg 9: flag ‘dev’: command ‘dat’ exceeds presence limit."
+	# f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=()
+	# f7x=(); f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=()
+	# fSx=(); fIx=(); fAx=(); fUx=()
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  -pbare1 -pbare2 -pbare9 Ddat dev=dat=k Ddat=X D dat=I dev dat=G
+
+	# 94
+	expx=1
+	exp="error: arg 1: flag ‘-p’: command ‘bare1’ does not take an input.
+error: arg 4: flag ‘-p’: unrecognized command: ‘bare0’.
+error: arg 5: flag ‘-p’: command ‘bare1’ exceeds presence limit."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -pbare1= --pan=bare4 --pan=bare6 -pbare0 -pbare1
+
+	# 95
+	expx=1
+	exp="error: arg 4: flag ‘-p’: command ‘bare8’ exceeds presence limit.
+error: arg 5: flag ‘-p’: command ‘bare1’ exceeds presence limit.
+error: arg 6: flag ‘--pan’: command ‘bare7’ exceeds presence limit."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -pbare1 --pan=bare4 --pan=bare6 -pbare8 -pbare1 --pan=bare7
+
+	# 96
+	expx=0
+	exp=""
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- \
+			  +aptitude=trace +aptitude=det +aptitude=logACE +aptitude=logUE
+
+	# 97
+	expx=1
+	exp="error: arg 1: unrecognized argument: ‘cb3:(bare[1-9])’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- cb3:"(bare[1-9])"
+
+	# 98
+	expx=1
+	exp="error: arg 1: unrecognized argument: ‘cb:bare’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- cb:bare
+
+	# 99
+	expx=0
+	exp=""
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 \
+			  --- -yy
+
+	# 100
+	expx=1
+	exp="error: arg 2: flag ‘-y’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- -yy -y
+
+	# 101
+	expx=1
+	exp="error: arg 3, flag 2: flag ‘-y’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- X -y -yy
+
+	# 102
+	expx=1
+	exp="error: arg 4, flag 2: flag ‘-y’: given too many times.
+error: arg 5: flag ‘-y’: given too many times.
+error: arg 5, flag 2: flag ‘-y’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- X Y -y -yy -yy
+
+	# 103
+	expx=1
+	exp="error: arg 4, flag 2: flag ‘-y’: given too many times.
+error: arg 5: flag ‘-y’: given too many times.
+error: arg 5, flag 2: flag ‘-y’: given too many times.
+error: arg 6: unrecognized flag: ‘-Q’."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- X Y -y -yy -yy -Q
+
+	# 104
+	expx=1
+	exp="error: arg 2: flag ‘--exc’: given too many times.
+error: arg 4: flag ‘--exc’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --1 --exc --2 --exc --2
+
+	# 105
+	expx=1
+	exp="error: arg 3: flag ‘--2’: given too many times.
+error: arg 5: flag ‘--2’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --2 --2=QincS --2 --m1=-flag --2=Qkdne --m1=-flag
+
+	# 106
+	expx=1
+	exp="error: arg 1: flag ‘--1’: command ‘opt3-1’ exceeds presence limit.
+error: arg 2: flag ‘--1’: command ‘opt3-1’ exceeds presence limit.
+error: arg 2: flag ‘--1’: command ‘opt3-1’ exceeds presence limit.
+error: arg 3: flag ‘--1’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --1=bare1,opt1=Sc,opt2=c,opt3-1,opt3-1=X \
+			  --1=opt3-1=Ve,opt3-1, --1=mand4-4=X,opt3-1,opt3-1
+
+	# 107
+	expx=1
+	exp="error: arg 4: flag ‘--1’: given too many times.
+error: arg 5: flag ‘--m1’: command ‘+attrib’: unrecognized input: ‘Unset-file3’.
+error: arg 7: flag ‘--m1’: command ‘+attrib’ exceeds presence limit.
+error: arg 9: flag ‘--m1’: command ‘-attrib’ exceeds presence limit."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --1 --1 --2 --1 --m1 +attrib=Unset-file3 \
+			  --m1 +attrib=set-file3 --m1=-attrib=unset-file1
+
+	# 108
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=(); f17x=()
+	f18x=(1,--m1 ":<+attrib=unset-file4" 2,--m1 ":>--flag" 4,--m1 ":<Opt")
+	f19x=()
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --m1=+attrib=unset-file4 --m1 --flag --m1=Opt
+
+	# 109
+	expx=1
+	exp="error: arg 3: flag ‘--m1’: command ‘--opt’: unrecognized input: ‘z2’.
+error: arg 5: flag ‘--m1’: given too many times."
+	run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- --m1=-attrib=file1 --m1=-flag --m1 --opt=z2 --m1 opt=A0
+
+	# 110
+	# f19=(O
+	#        '/-{0,2}//'
+	#        '/--{0,1}claw/'
+	#        cb:, cb:: cm:x f:comsep=_ f:cominp='>' f:flaginp=~)
+	#f17=(O2 --1 cb:bare1 cb2:bare2-2 co:opt1 co:opt2=a,b,c co1:opt3-1 \
+	#			co3:opt2-3=A,B,C cm:mand1 cm1:mand2-1 cm:mand3=x,y,z \
+	#			cm4:mand4-4=X,Y,Z)
+	expx=0
+	exp=""
+	f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	f15x=(); f16x=()
+	f17x=(3,--1 ':<bare1,mand4-4=Y' 5,--1 ':<opt2=b,,opt2-3=C,,')
+	f18x=(); f19x=(1,'/' _ 2,'--/' _ 4,--claw ':<x>J_:_:__:__')
+	fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+			  f16 f17 f18 f19 fI \
+			  --- / --/ --1=bare1,mand4-4=Y --claw~'x>J_:_:__:__' \
+			  --1=opt2=b,,opt2-3=C,,
+
+	# 111
+	#expx=0
+	#exp=""
+	#run_check f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+	#		  f16 f17 f18 f19 fI \
+	#		  ---
+
+	# 112
+	#expx=0
+	#exp=""
+	#f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	#f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	#f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	#fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	#run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+	#		  f16 f17 f18 f19 fI \
+	#		  ---
+
+	# 113
+	#expx=0
+	#exp=""
+	#f1x=(); f2x=(); f3x=(); f4x=(); f5x=(); f6x=(); f7x=()
+	#f8x=(); f9x=(); f10x=(); f11x=(); f12x=(); f13x=(); f14x=()
+	#f15x=(); f16x=(); f17x=(); f18x=(); f19x=()
+	#fSx=(); fIx=(); fAx=(); fUx=(); fA4x=()
+	#run_check PASS f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 \
+	#		  f16 f17 f18 f19 fI \
+	#		  ---
+
+
+
+	echo
+	if ((fail_count)); then
+		echo -n "all checks: ${setcolour[lred]}$fail_count FAILED${setcolour[off]} (${setcolour[lred]}${${$((100 * fail_count / (run_count + 0.0) ))}[1,4]}%${setcolour[off]}); check numbers: ${setcolour[lred]}$fail_list[1]${setcolour[off]}"
+		integer fci
+		for (( fci=2; fci<=$#fail_list; fci++ )); do
+			echo -n ", ${setcolour[lred]}$fail_list[$fci]${setcolour[off]}"
+		done
+		echo
+	else
+		echo "all checks ${setcolour[lgreen]}PASSED${setcolour[off]}."
+	fi
+fi
+
+:

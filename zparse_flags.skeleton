@@ -1,0 +1,70 @@
+## zparse_flags boilerplate ##
+#
+# This file should not really be sourced since individual scripts may need
+# to set some parameters to specific values, depending on the script.
+
+
+## set to make the zparse_flags loader print some information messages:
+#export zparse_flags_loader_verbose=1
+
+## set to suppress internal error messages:
+#export zparse_flags_internal_error_quiet=1
+
+## flag data for the flag specification 'flag' is usually recorded in the
+## array 'flag_usage', and any inputs are stored in the associative array
+## 'flag_inputs'. These can be changed to 'flag_x' and 'flag_y' respectively
+## by setting the following parameters to 'x' and 'y' respectively.
+#export zparse_flags_usage_rename="_usage"
+#export zparse_flags_inputs_rename="_inputs"
+
+## the universal character used to separate flag commands. The default is
+## the comma character, ','.
+#export zparse_flags_comsep=,
+
+## the universal character used to separate a flag command from its input.
+## The default is the equals sign character '='.
+#export zparse_flags_cominp="="
+
+## the universal character used to separate a flag from its input. The
+## default is the equals sign character '='.
+#export zparse_flags_flaginp="="
+
+## set 'zparse_flags_list_recognized_flags' to '1' to record the flag
+## specifications that were given to zparse_flags in an array called
+## 'zparse_flags_recognized_flag_names'. To change the name of this array, set
+## 'zparse_flags_list_recognized_flags_name' to what the new parameter should
+## be named.
+#export zparse_flags_list_recognized_flags=1
+#export zparse_flags_list_recognized_flags_name="used_flags"
+
+## added to start/end of ALL zparse_flags messages:
+#export zparse_flags_preamble=""
+#export zparse_flags_postscript=""
+
+## inside of preamble/postscript, added to start/end of all error and internal
+## error messages:
+#export zparse_flags_error_start=""
+#export zparse_flags_error_end=""
+
+## inside of error_start/error_end, added to start/end of all internal error
+## messages:
+#export zparse_flags_internal_error_start=""
+#export zparse_flags_internal_error_end=""
+
+## set in order to print errors whenever empty flag declarations are given,
+## which are just ignored by default
+#export zparse_flags_strict_flag_declarations=1
+
+## set to the version of zparse_flags required:
+export zparse_flags_req=0
+
+
+# use environment zparse_flags location, if set:
+if [[ -n $ZPARSE_FLAGS ]] && source $ZPARSE_FLAGS >/dev/null 2>&1; then :
+elif source ${ZDOTDIR:-$HOME/.zsh}/lib/zparse_flags/zparse_flags >/dev/null 2>&1; then :
+elif source /usr/local/share/zparse_flags/zparse_flags >/dev/null 2>&1; then :
+elif source /usr/share/zparse_flags/zparse_flags >/dev/null 2>&1; then :
+else
+	echo "error: sourcing zparse_flags failed." >&2
+	exit 1
+fi

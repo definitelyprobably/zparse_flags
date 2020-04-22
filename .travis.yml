@@ -1,0 +1,7 @@
+language: shell
+os:
+  - linux
+dist: bionic
+before_install:
+  - sudo apt-get -y install zsh
+script: sudo make install-system && ./check system

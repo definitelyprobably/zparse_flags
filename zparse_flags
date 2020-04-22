@@ -1,0 +1,336 @@
+#!/bin/zsh
+#
+# utility script that sources the appropiate zparse_flags version.
+#
+# version: 1
+#
+# Variables affecting the file:
+#   +  zparse_flags_req
+#            - set the zparse_flags version to load. This can be either the
+#              exact version specified, or else a family number (a whole
+#              number) in which case the latest version in that family found
+#              will be loaded. If set to "-", it will be equivalent to having
+#              not set the variable at all.
+#   +  zparse_flags_loader_verbose
+#            - output a log message to stdout on what version zparse_flags was
+#              loaded by this script. The output message respects the same
+#              'zparse_flags_preamble' and 'zparse_flags_postscript' variables
+#              the zparse_flags file proper does. To set the variable it must
+#              have the value "1"; any other value, or the variable being
+#              null or empty, will be equivalent to the variable not being
+#              set.
+#
+# Variables set by the file:
+#   + zparse_flags_quote_left
+#            - set to the unicode character 'left single quotation mark',
+#              U+2018 (0x2018).
+#   + zparse_flags_quote_right
+#            - set to the unicode character 'right single quotation mark',
+#              U+2019 (0x2019).
+#   + zparse_flags_load_name
+#            - set to the base name of the zparse_flags file loaded. It will
+#              be equal to the name of this file.
+#   + zparse_flags_load_version
+#            - set to the version of the zparse_flags file loaded.
+#   + zparse_flags_load
+#            - set to the full name of the zparse_flags file loaded. Equal to
+#              "$zparse_flags_load_name.$zparse_flags_load_version".
+#
+#
+# This script will look to load an actual parse-flags file. How it does so
+# depends on the value of the variable 'zparse_flags_req':
+#   - if unset, then the script will look for files named $0.X (where X is
+#     variable) in the directory in which this file is located and then load
+#     the largest X, where sorting is done by 'sort -n', which will sort
+#     ascending numerical and then ascending alphabetical. So, 'sort -n' will
+#     order files as:
+#       zparse_flags.1 zparse_flags.1.0.5 zparse_flags.a zparse_flags.zsh
+#   - if set to an integer, we will look for the largest value subversion and
+#     load that file. For example, if zparse_flags_req is set to "5", and
+#     there exist files:
+#       zparse_flags.5.1 zparse_flags5.2 zparse_flags.6 zparse_flags.zsh
+#     then we will load "zparse_flags.5.2". If no files of version "5" are
+#     found then we will return error since the user requested version "5"
+#     files ONLY.
+#   - otherwise, we will take the zparse_flags_req string to signify that that
+#     particular version is required. For example, if set to "6.1", then we
+#     will load zparse_flags.6.1 or else fail. Note that non-numerical values
+#     for zparse_flags_req are allowed, and if given we will look for that
+#     "version" and try to load it just the same as if it were numerical.
+#
+
+
+zparse_flags_name=$0
+zparse_flags_quote_left="\xe2\x80\x98"
+zparse_flags_quote_right="\xe2\x80\x99"
+
+
+zparse_flags_search_files () {
+	[[ -z $1 ]] && return 2
+	setopt localoptions
+	setopt extendedglob
+	setopt nonomatch
+	local -a zparse_flags_index
+	local search_name=$1
+	local error_message=$2
+
+	zparse_flags_index=( $search_name.[0-9]##.[0-9]##.[0-9]## )
+
+	# if no files found, then nonomatch will cause the array to just contain
+	# the search pattern
+	if [[ $#zparse_flags_index == 1 && \
+		  $zparse_flags_index[1] == $search_name".[0-9]##.[0-9]##.[0-9]##" ]]
+	then
+		return 1
+	fi
+
+	# put the files into an associative array
+	local major
+	local minor
+	local age
+	for i in $zparse_flags_index ; do
+		major=$(printf "%05d" ${${i##$zparse_flags_name.}%%.[0-9]##.[0-9]##})
+		minor=$(printf "%05d" ${${i##$zparse_flags_name.[0-9]##.}%%.[0-9]##})
+		age=$(printf "%05d" ${i##$zparse_flags_name.[0-9]##.[0-9]##.})
+		zparse_flags_files[$major$minor$age]=$i
+	done
+}
+
+
+zparse_flags_load () {
+	setopt localoptions
+	setopt extendedglob
+
+	local -A zparse_flags_files
+	if ! zparse_flags_search_files $zparse_flags_name ; then
+		echo - "${zparse_flags_preamble}${zparse_flags_error_start}$(basename $zparse_flags_name): error: no files found to load.${zparse_flags_error_end}${zparse_flags_postscript}" >&2
+		unset zparse_flags_files
+		unfunction zparse_flags_search_files
+		unfunction zparse_flags_load
+		return 1
+	fi
+	unfunction zparse_flags_search_files
+
+	# check if zparse_flags_req is not set or is malformed
+	if [[ -z $zparse_flags_req || ! $zparse_flags_req =~ '^[0-9]*$' ]] ; then
+		# load largest version available
+		zparse_flags_load=${zparse_flags_files[${${(Ok@)zparse_flags_files}[1]}]}
+		unset zparse_flags_files
+		zparse_flags_load_version=${zparse_flags_load##$zparse_flags_name.##}
+		zparse_flags_load_name=$(basename $zparse_flags_name)
+
+		if source $zparse_flags_load >/dev/null 2>&1; then
+			if [[ $zparse_flags_loader_verbose == 1 ]]; then
+				echo - "${zparse_flags_preamble}${zparse_flags_info_start}$(basename $zparse_flags_name): loaded $zparse_flags_load_name version: $zparse_flags_load_version${zparse_flags_info_end}$zparse_flags_postscript"
+			fi
+			unfunction zparse_flags_load
+			return 0
+		else
+			echo - "${zparse_flags_preamble}${zparse_flags_error_start}$(basename $zparse_flags_name): error: file $zparse_flags_quote_left$zparse_flags_load$zparse_flags_quote_right could not be loaded.${zparse_flags_error_end}${zparse_flags_postscript}" >&2
+			unfunction zparse_flags_load
+			return 1
+		fi
+	else
+		# load largest version that matches the requested version
+		# first we need to create a candidate list of keys:
+		local -a candidate_keys
+		local -i major
+		local -i age
+		for i in ${(k)zparse_flags_files} ; do
+			major=${i[1,5]}
+			age=${i[-5,-1]}
+
+			if (( $zparse_flags_req >= $major - $age \
+					&& $zparse_flags_req <= $major))
+			then
+				candidate_keys+=($i)
+			fi
+		done
+
+		if [[ -z $candidate_keys ]]; then
+			echo - "${zparse_flags_preamble}${zparse_flags_error_start}$(basename $zparse_flags_name): error: no version $zparse_flags_req files found to load.${zparse_flags_error_end}${zparse_flags_postscript}" >&2
+			unfunction zparse_flags_load
+			return 1
+		else
+			zparse_flags_load=${zparse_flags_files[${${(O@)candidate_keys}[1]}]}
+			zparse_flags_load_version=${zparse_flags_load##$zparse_flags_name.##}
+			zparse_flags_load_name=$(basename $zparse_flags_name)
+
+			if source $zparse_flags_load >/dev/null 2>&1; then
+				if [[ $zparse_flags_loader_verbose == 1 ]]; then
+					echo - "${zparse_flags_preamble}${zparse_flags_info_start}$(basename $zparse_flags_name): loaded $zparse_flags_load_name version: $zparse_flags_load_version${zparse_flags_info_end}$zparse_flags_postscript"
+				fi
+				unfunction zparse_flags_load
+				return 0
+			else
+				echo - "${zparse_flags_preamble}${zparse_flags_error_start}$(basename $zparse_flags_name): error: file $zparse_flags_quote_left$zparse_flags_load$zparse_flags_quote_right could not be loaded.${zparse_flags_error_end}${zparse_flags_postscript}" >&2
+				unfunction zparse_flags_load
+				return 1
+			fi
+		fi
+	fi
+}
+
+
+zparse_flags_load
+
+
+
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# exit
+# ##### TODO #####################################################
+# 
+# 
+# 
+# # FUNCTION: check to see if there exist files like parse_flags.*
+# parse_flags_check_for_files () {
+# 	[[ -z $1 ]] && return 2
+# 	setopt localoptions
+# 	setopt nonomatch
+# 	local -a parse_flags_load
+# 	local search_name=$1
+# 	local error_message=$2
+# 
+# 	for i in $search_name.* ; do
+# 		parse_flags_load+=($i)
+# 	done
+# 
+# 	# if no files found, then nonomatch will cause the array to just contain
+# 	# the search pattern
+# 	if (( $#parse_flags_load == 1 )) ; then
+# 		if [[ $parse_flags_load[1] == $search_name".*" ]] ; then
+# 			[[ -n $error_message ]] && echo - "${parse_flags_preamble}${parse_flags_error_start}${parse_flags_name}: error: ${error_message}.${parse_flags_error_end}${parse_flags_postscript}" >&2
+# 			return 1
+# 		fi
+# 	fi
+# 	:
+# }
+# 
+# # FUNCTION: load the largest version file
+# parse_flags_load_largest_version () {
+# 	for i in $parse_flags_name.* ; do
+# 		parse_flags_load_version+=(${i/$parse_flags_name./})
+# 	done
+# 	local -a exit_status
+# 	parse_flags_load_version=$(
+# 					   sort -n <<<$parse_flags_load_version 2>/dev/null | \
+# 					   xargs 2>/dev/null | \
+# 					   awk '{ print $NF }' 2>/dev/null)
+# 
+# 	exit_status=($pipestatus)
+# 	for i in $exit_status ; do
+# 		((i != 0)) && return 1
+# 	done
+# 
+# 	parse_flags_load_name=$(basename $parse_flags_name)
+# 	parse_flags_load=$parse_flags_load_name.$parse_flags_load_version
+# 
+# 	if ! source $parse_flags_name.$parse_flags_load_version >/dev/null 2>&1
+# 	then
+# 		echo - "${parse_flags_preamble}${parse_flags_error_start}parse_flags: error: file $parse_flags_quote_left$parse_flags_load$parse_flags_quote_right could not be loaded.${parse_flags_error_end}${parse_flags_postscript}" >&2 
+# 		return 1
+# 	fi
+# 
+# 	[[ $parse_flags_loader_verbose == 1 ]] && \
+# 		echo - "${parse_flags_preamble}${parse_flags_info_start}parse_flags: loaded $parse_flags_load_name version: $parse_flags_load_version.${parse_flags_info_end}$parse_flags_postscript"
+# }
+# 
+# # FUNCTION: load the largest sub-version file
+# parse_flags_load_largest_subversion () {
+# 	setopt localoptions
+# 	setopt nonomatch
+# 	parse_flags_check_for_files $parse_flags_name.$parse_flags_req || return 1
+# 
+# 	for i in $parse_flags_name.$parse_flags_req.* ; do
+# 		parse_flags_load_version+=(${i/$parse_flags_name./})
+# 	done
+# 	local -a exit_status
+# 	parse_flags_load_version=$(
+# 					   sort -n <<<$parse_flags_load_version 2>/dev/null | \
+# 					   xargs 2>/dev/null | \
+# 					   awk '{ print $NF }' 2>/dev/null)
+# 
+# 	exit_status=($pipestatus)
+# 	for i in $exit_status ; do
+# 		((i != 0)) && return 1
+# 	done
+# 
+# 	parse_flags_load_name=$(basename $parse_flags_name)
+# 	parse_flags_load=$parse_flags_load_name.$parse_flags_load_version
+# 
+# 	if ! source $parse_flags_name.$parse_flags_load_version >/dev/null 2>&1 ; then
+# 		echo - "${parse_flags_preamble}${parse_flags_error_start}parse_flags: error: file $parse_flags_quote_left$parse_flags_load$parse_flags_quote_right could not be loaded.${parse_flags_error_end}${parse_flags_postscript}" >&2 
+# 		return 1
+# 	fi
+# 	[[ $parse_flags_loader_verbose == 1 ]] && \
+# 		echo - "${parse_flags_preamble}${parse_flags_info_start}parse_flags: loaded $parse_flags_load_name version: $parse_flags_load_version.${parse_flags_info_end}$parse_flags_postscript"
+# 	:
+# }
+# 
+# parse_flags_clean () {
+# 	unset parse_flags_name
+# 	unfunction parse_flags_check_for_files
+# 	unfunction parse_flags_load_largest_version
+# 	unfunction parse_flags_load_largest_subversion
+# }
+# 
+# 
+# # If no files named $parse_flags_name.* then exit
+# if ! parse_flags_check_for_files $parse_flags_name \
+# 				"error: no $(basename $parse_flags_name) files found to load"
+# then
+# 	parse_flags_clean
+# 	unfunction parse_flags_clean
+# 	return 1
+# fi
+# 
+# # If not given a version request, then load the last version we can find
+# if [[ -z $parse_flags_req || $parse_flags_req == "-" ]] ; then
+# 	if ! parse_flags_load_largest_version ; then
+# 		parse_flags_clean
+# 		unfunction parse_flags_clean
+# 		return 1
+# 	fi
+# 
+# # Otherwise, if given a whole number then load the largest decimal.
+# #elif [[ $parse_flags_req =~ '[0-9]*' && $MATCH == $parse_flags_req ]] ; then
+# else
+# 	if parse_flags_load_largest_subversion ; then
+# 		parse_flags_clean
+# 		unfunction parse_flags_clean
+# 		return 0
+# 	fi
+# 
+# # Otherwise we just load the version asked for:
+# #else
+# 	parse_flags_load_name=$(basename $parse_flags_name)
+# 	parse_flags_load_version=$parse_flags_req
+# 	parse_flags_load=$parse_flags_load_name.$parse_flags_load_version
+# 
+# 	if ! source $parse_flags_name.$parse_flags_load_version >/dev/null 2>&1
+# 	then
+# 		if [[ ! -f $parse_flags_name.$parse_flags_load_version ]] ; then
+# 			echo - "${parse_flags_preamble}${parse_flags_error_start}parse_flags: error: no version $parse_flags_quote_left$parse_flags_load_version$parse_flags_quote_right of $parse_flags_load_name found to load.${parse_flags_error_end}${parse_flags_postscript}" >&2
+# 		else
+# 			echo - "${parse_flags_preamble}${parse_flags_error_start}parse_flags: error: version $parse_flags_quote_left$parse_flags_load_version$parse_flags_quote_right of $parse_flags_load_name: sourcing failed.${parse_flags_error_end}${parse_flags_postscript}" >&2
+# 		fi
+# 		parse_flags_clean
+# 		unfunction parse_flags_clean
+# 		return 1
+# 	fi
+# 	[[ $parse_flags_loader_verbose == 1 ]] && \
+# 		echo - "${parse_flags_preamble}${parse_flags_info_start}parse_flags: loaded $parse_flags_load_name version: $parse_flags_load_version.${parse_flags_info_end}$parse_flags_postscript"
+# fi
+# 
+# parse_flags_clean
+# unfunction parse_flags_clean
+# :
